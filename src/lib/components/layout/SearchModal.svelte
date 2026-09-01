@@ -573,9 +573,31 @@
 	</div>
 </DeleteConfirmDialog>
 
-<Modal size="xl" bind:show>
-	<div class="py-2.5 dark:text-gray-300 text-gray-700">
-		<div class="px-3.5 pb-1">
+<Modal
+	size="xl"
+	bind:show
+	containerClassName="buildstudio-search-overlay p-3"
+	className="buildstudio-search-modal"
+>
+	<div class="buildstudio-search-shell py-3 text-[#dce8ff]">
+		<div class="buildstudio-search-header px-5 pb-3">
+			<div class="flex items-center gap-2.5">
+				<img
+					src="/assets/buildstudio-there-emblem.png?v=buildstudio-there-20260901"
+					alt=""
+					class="size-7 object-contain"
+				/>
+				<div>
+					<div class="text-[0.65rem] font-semibold tracking-[0.22em] text-[#6f93d8]">
+						BUILDSTUDIO THERE
+					</div>
+					<div class="text-sm font-medium text-[#e8f0ff]">Search your workspace</div>
+				</div>
+			</div>
+			<kbd>ESC</kbd>
+		</div>
+
+		<div class="buildstudio-search-input-wrap px-4 pb-3">
 			<SearchInput
 				bind:value={query}
 				on:input={searchHandler}
@@ -608,19 +630,19 @@
 			/>
 		</div>
 
-		<div class="flex px-3.5 pb-0.5">
+		<div class="buildstudio-search-columns flex px-4 pb-1">
 			<div
-				class="flex flex-col overflow-y-auto h-96 md:h-[40rem] max-h-full scrollbar-hidden w-full flex-1 pr-2"
+				class="buildstudio-search-list flex flex-col overflow-y-auto max-h-full scrollbar-hidden w-full flex-1 pr-3"
 			>
-				<div class="w-full text-xs text-gray-500 dark:text-gray-500 font-normal pb-2 px-2">
+				<div class="buildstudio-search-section-label w-full pb-2 px-2">
 					{$i18n.t('Actions')}
 				</div>
 
 				{#each actions as action, idx (action.label)}
 					<button
-						class="w-full flex items-center rounded-lg text-sm py-1.5 px-2.5 hover:bg-gray-50/70 dark:hover:bg-gray-850/50 {selectedIdx ===
+						class="buildstudio-search-action w-full flex items-center rounded-lg text-sm py-1.5 px-2.5 hover:bg-gray-50/70 dark:hover:bg-gray-850/50 {selectedIdx ===
 						idx
-							? 'bg-gray-50/70 dark:bg-gray-850/50'
+							? 'buildstudio-search-selected'
 							: ''}"
 						data-arrow-selected={selectedIdx === idx ? 'true' : undefined}
 						draggable="false"
@@ -654,7 +676,7 @@
 					{#each chatList as chat, idx (chat.id)}
 						{#if idx === 0 || (idx > 0 && chat.time_range !== chatList[idx - 1].time_range)}
 							<div
-								class="w-full text-xs text-gray-500 dark:text-gray-500 font-normal {idx === 0
+								class="buildstudio-search-section-label w-full {idx === 0
 									? ''
 									: 'pt-4'} pb-1.5 px-2"
 							>
@@ -682,9 +704,9 @@
 
 						<!-- svelte-ignore a11y-no-static-element-interactions -->
 						<div
-							class="w-full flex justify-between items-center rounded-lg text-sm py-1.5 pl-2.5 pr-32 hover:bg-gray-50/70 dark:hover:bg-gray-850/50 group/item relative {selectedIdx ===
+							class="buildstudio-search-chat w-full flex justify-between items-center rounded-lg text-sm py-1.5 pl-2.5 pr-32 hover:bg-gray-50/70 dark:hover:bg-gray-850/50 group/item relative {selectedIdx ===
 							idx + actions.length
-								? 'bg-gray-50/70 dark:bg-gray-850/50'
+								? 'buildstudio-search-selected'
 								: ''}"
 							data-arrow-selected={selectedIdx === idx + actions.length ? 'true' : undefined}
 							on:mouseenter={() => {
@@ -890,7 +912,7 @@
 			<div
 				id={messagesContainerId}
 				bind:this={messagesContainerElement}
-				class="hidden md:flex md:flex-1 w-full overflow-y-auto h-96 md:h-[40rem] scrollbar-hidden @container"
+				class="buildstudio-search-preview hidden md:flex md:flex-1 w-full overflow-y-auto scrollbar-hidden @container"
 			>
 				{#if messages === null}
 					<div
@@ -920,3 +942,139 @@
 		</div>
 	</div>
 </Modal>
+
+<style>
+	:global(.buildstudio-search-overlay) {
+		background: rgba(1, 7, 20, 0.78) !important;
+		backdrop-filter: blur(10px);
+	}
+
+	:global(.buildstudio-search-modal) {
+		position: relative;
+		overflow: hidden;
+		border: 1px solid rgba(60, 103, 171, 0.72) !important;
+		border-radius: 1.65rem !important;
+		background:
+			radial-gradient(circle at 12% 0%, rgba(43, 83, 167, 0.2), transparent 34%),
+			linear-gradient(145deg, rgba(8, 24, 52, 0.99), rgba(3, 12, 29, 0.995)) !important;
+		box-shadow:
+			0 36px 100px rgba(0, 0, 0, 0.58),
+			0 0 0 1px rgba(93, 139, 255, 0.06) inset !important;
+		color: #dce8ff !important;
+	}
+
+	:global(.buildstudio-search-modal::before) {
+		position: absolute;
+		inset: 0 0 auto;
+		height: 2px;
+		background: linear-gradient(90deg, #ff344f, #5c74ff 54%, #28d7df);
+		content: '';
+	}
+
+	.buildstudio-search-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		border-bottom: 1px solid rgba(68, 105, 164, 0.28);
+	}
+
+	.buildstudio-search-header kbd {
+		border: 1px solid rgba(100, 136, 193, 0.42);
+		border-radius: 0.45rem;
+		background: rgba(13, 35, 72, 0.72);
+		padding: 0.22rem 0.45rem;
+		font-size: 0.6rem;
+		letter-spacing: 0.12em;
+		color: #91a9d6;
+	}
+
+	.buildstudio-search-input-wrap {
+		padding-top: 0.75rem;
+	}
+
+	:global(.buildstudio-search-modal #search-container) {
+		margin: 0;
+		padding: 0;
+	}
+
+	:global(.buildstudio-search-modal #chat-search) {
+		min-height: 3rem;
+		align-items: center;
+		border: 1px solid rgba(65, 110, 184, 0.62);
+		border-radius: 0.9rem;
+		background: rgba(5, 18, 42, 0.84);
+		box-shadow: 0 0 0 3px rgba(58, 101, 197, 0.06);
+	}
+
+	:global(.buildstudio-search-modal #chat-search > div:first-child) {
+		padding-left: 0.9rem;
+		color: #80a6ef;
+	}
+
+	:global(.buildstudio-search-modal #search-input) {
+		color: #e9f1ff !important;
+	}
+
+	:global(.buildstudio-search-modal #search-input::placeholder) {
+		color: #6984b4;
+	}
+
+	.buildstudio-search-columns {
+		gap: 0;
+	}
+
+	.buildstudio-search-list {
+		height: min(40rem, calc(100dvh - 11.5rem));
+		border-right: 1px solid rgba(63, 99, 154, 0.28);
+	}
+
+	.buildstudio-search-preview {
+		height: min(40rem, calc(100dvh - 11.5rem));
+		background: linear-gradient(180deg, rgba(7, 20, 45, 0.46), rgba(3, 13, 31, 0.22));
+	}
+
+	.buildstudio-search-section-label {
+		font-size: 0.65rem;
+		font-weight: 600;
+		letter-spacing: 0.12em;
+		text-transform: uppercase;
+		color: #6f8fc8;
+	}
+
+	.buildstudio-search-action,
+	.buildstudio-search-chat {
+		min-height: 2.35rem;
+		color: #cbdaf5;
+		transition:
+			background-color 140ms ease,
+			color 140ms ease,
+			box-shadow 140ms ease;
+	}
+
+	.buildstudio-search-action:hover,
+	.buildstudio-search-chat:hover,
+	.buildstudio-search-action.buildstudio-search-selected,
+	.buildstudio-search-chat.buildstudio-search-selected,
+	.buildstudio-search-action[data-arrow-selected='true'],
+	.buildstudio-search-chat[data-arrow-selected='true'] {
+		background: linear-gradient(90deg, rgba(39, 83, 155, 0.55), rgba(21, 49, 97, 0.35)) !important;
+		box-shadow: inset 2px 0 0 #5c83ff;
+		color: #ffffff;
+	}
+
+	:global(.buildstudio-search-modal mark) {
+		background: rgba(61, 105, 210, 0.42) !important;
+		color: #ffffff !important;
+	}
+
+	@media (max-width: 767px) {
+		.buildstudio-search-header {
+			padding-inline: 1rem;
+		}
+
+		.buildstudio-search-list {
+			border-right: 0;
+			padding-right: 0;
+		}
+	}
+</style>

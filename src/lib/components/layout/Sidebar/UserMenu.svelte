@@ -114,11 +114,11 @@
 	<slot />
 
 	<div slot="content">
-		<DropdownMenu className="{className} font-sans text-xs">
+		<DropdownMenu className="{className} buildstudio-user-menu font-sans text-xs">
 			{#if $user}
 				<div>
 					<button
-						class="flex h-[1.6875rem] items-center gap-2 rounded-xl px-2 text-xs w-full hover:bg-gray-100 dark:hover:bg-gray-900 transition cursor-pointer select-none text-left"
+						class="buildstudio-user-menu-profile flex h-[1.6875rem] items-center gap-2 rounded-xl px-2 text-xs w-full hover:bg-gray-100 dark:hover:bg-gray-900 transition cursor-pointer select-none text-left"
 						type="button"
 						on:click={async () => {
 							show = false;
@@ -567,7 +567,7 @@
 			</button>
 
 			<button
-				class="flex h-[1.6875rem] items-center gap-2 rounded-xl px-2 text-[0.8125rem] w-full hover:bg-gray-100 dark:hover:bg-gray-900 transition cursor-pointer select-none"
+				class="buildstudio-user-menu-signout flex h-[1.6875rem] items-center gap-2 rounded-xl px-2 text-[0.8125rem] w-full hover:bg-gray-100 dark:hover:bg-gray-900 transition cursor-pointer select-none"
 				type="button"
 				on:click={async () => {
 					const res = await userSignOut();
@@ -585,3 +585,55 @@
 		</DropdownMenu>
 	</div>
 </Dropdown>
+
+<style>
+	:global(.buildstudio-user-menu) {
+		padding: 0.45rem !important;
+		border: 1px solid rgba(61, 101, 166, 0.7) !important;
+		border-radius: 1.1rem !important;
+		background: linear-gradient(145deg, rgba(10, 27, 58, 0.98), rgba(4, 13, 31, 0.985)) !important;
+		box-shadow:
+			0 24px 60px rgba(0, 0, 0, 0.48),
+			0 0 0 1px rgba(79, 126, 255, 0.08) inset !important;
+		color: #dce8ff !important;
+		backdrop-filter: blur(24px);
+	}
+
+	:global(.buildstudio-user-menu button),
+	:global(.buildstudio-user-menu a) {
+		min-height: 2rem !important;
+		height: auto !important;
+		border-radius: 0.7rem !important;
+		color: #dce8ff !important;
+	}
+
+	:global(.buildstudio-user-menu button:hover),
+	:global(.buildstudio-user-menu a:hover) {
+		background: linear-gradient(90deg, rgba(38, 81, 152, 0.58), rgba(20, 51, 102, 0.4)) !important;
+		color: #ffffff !important;
+	}
+
+	:global(.buildstudio-user-menu svg) {
+		color: #9db8ed;
+	}
+
+	:global(.buildstudio-user-menu hr) {
+		border-color: rgba(67, 103, 157, 0.38) !important;
+		margin-block: 0.35rem !important;
+	}
+
+	:global(.buildstudio-user-menu-profile) {
+		margin-bottom: 0.2rem;
+		border: 1px solid rgba(72, 112, 180, 0.28);
+		background: rgba(26, 58, 112, 0.3) !important;
+	}
+
+	:global(.buildstudio-user-menu-signout) {
+		color: #ffb6bd !important;
+	}
+
+	:global(.buildstudio-user-menu-signout:hover) {
+		background: rgba(118, 35, 57, 0.4) !important;
+		color: #ffd7db !important;
+	}
+</style>

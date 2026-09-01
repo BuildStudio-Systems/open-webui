@@ -291,7 +291,7 @@
 										<img
 											id="logo"
 											crossorigin="anonymous"
-											src="{WEBUI_BASE_URL}/static/favicon.png"
+											src="{WEBUI_BASE_URL}/static/favicon.png?v=buildstudio-there-20260901"
 											class="size-24 rounded-full"
 											alt="{$WEBUI_NAME} logo"
 										/>
@@ -657,7 +657,7 @@
 						<img
 							id="logo"
 							crossorigin="anonymous"
-							src="{WEBUI_BASE_URL}/static/favicon.png"
+							src="{WEBUI_BASE_URL}/static/favicon.png?v=buildstudio-there-20260901"
 							class=" w-6 rounded-full"
 							alt=""
 						/>

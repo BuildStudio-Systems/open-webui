@@ -967,7 +967,7 @@
 							Do not alter, remove, obscure, or replace it except as LICENSE permits:
 							https://docs.openwebui.com/license. -->
 								<img
-									src="{WEBUI_BASE_URL}/static/favicon.png"
+									src="{WEBUI_BASE_URL}/static/favicon.png?v=buildstudio-there-20260901"
 									class="sidebar-new-chat-icon size-5 rounded-full group-hover:hidden"
 									alt=""
 								/>
@@ -1154,7 +1154,7 @@
 					https://docs.openwebui.com/license. -->
 						<img
 							crossorigin="anonymous"
-							src="{WEBUI_BASE_URL}/static/favicon.png"
+							src="{WEBUI_BASE_URL}/static/favicon.png?v=buildstudio-there-20260901"
 							class="sidebar-new-chat-icon size-5 rounded-full"
 							alt=""
 						/>

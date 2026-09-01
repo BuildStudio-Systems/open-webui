@@ -46,7 +46,7 @@
 			<img
 				id="logo"
 				crossorigin="anonymous"
-				src="/static/favicon.png"
+				src="/static/favicon.png?v=buildstudio-there-20260901"
 				class="size-6 rounded-full"
 				alt="logo"
 			/>

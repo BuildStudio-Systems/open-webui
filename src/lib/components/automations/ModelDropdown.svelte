@@ -70,7 +70,7 @@
 
 	<div
 		slot="content"
-		class="rounded-xl shadow-lg border border-gray-200 dark:border-gray-800 flex flex-col bg-white dark:bg-gray-850 w-72 p-0.5"
+		class="buildstudio-dropdown-menu rounded-xl shadow-lg border border-gray-200 dark:border-gray-800 flex flex-col bg-white dark:bg-gray-850 w-72 p-0.5"
 	>
 		<div class="flex items-center gap-1.5 px-2 py-1">
 			<Search className="size-3.5" strokeWidth="2.5" />

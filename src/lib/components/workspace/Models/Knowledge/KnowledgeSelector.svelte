@@ -119,7 +119,7 @@
 
 	<div slot="content">
 		<div
-			class="z-[10000] text-black dark:text-white rounded-xl shadow-lg border border-gray-200 dark:border-gray-800 flex flex-col bg-white dark:bg-gray-850 w-64 p-0.5"
+			class="buildstudio-dropdown-menu z-[10000] text-black dark:text-white rounded-xl shadow-lg border border-gray-200 dark:border-gray-800 flex flex-col bg-white dark:bg-gray-850 w-64 p-0.5"
 		>
 			<div class=" flex w-full space-x-1.5 px-1.5 pb-0.5">
 				<div class="flex flex-1">

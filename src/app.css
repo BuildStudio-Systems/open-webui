@@ -1001,3 +1001,281 @@ html.high-contrast:not(.dark) .shimmer {
 	color: var(--color-gray-800);
 	-webkit-text-fill-color: var(--color-gray-800);
 }
+
+/* BuildStudio There: shared overlay system.
+   These surfaces stay on-brand independently of the user's content theme. */
+:root {
+	--buildstudio-overlay: rgba(1, 7, 20, 0.8);
+	--buildstudio-surface: #06152f;
+	--buildstudio-surface-deep: #030c1d;
+	--buildstudio-surface-raised: #0b2146;
+	--buildstudio-border: rgba(61, 103, 171, 0.7);
+	--buildstudio-border-soft: rgba(68, 105, 164, 0.32);
+	--buildstudio-text: #dce8ff;
+	--buildstudio-text-muted: #91a9d6;
+	--buildstudio-accent: #5c83ff;
+}
+
+:is(.buildstudio-modal-overlay, .buildstudio-confirm-overlay, .buildstudio-drawer-overlay) {
+	background: var(--buildstudio-overlay) !important;
+	backdrop-filter: blur(10px);
+}
+
+:is(
+	.buildstudio-modal-surface:not(.buildstudio-search-modal),
+	.buildstudio-confirm-surface,
+	.buildstudio-drawer-surface
+) {
+	position: relative;
+	border-color: var(--buildstudio-border) !important;
+	background:
+		radial-gradient(circle at 8% 0%, rgba(45, 83, 167, 0.2), transparent 32%),
+		linear-gradient(145deg, rgba(8, 24, 52, 0.995), rgba(3, 12, 29, 0.998)) !important;
+	box-shadow:
+		0 34px 100px rgba(0, 0, 0, 0.58),
+		inset 0 0 0 1px rgba(93, 139, 255, 0.055) !important;
+	color: var(--buildstudio-text) !important;
+	color-scheme: dark;
+}
+
+:is(
+	.buildstudio-modal-surface:not(.buildstudio-search-modal),
+	.buildstudio-confirm-surface,
+	.buildstudio-drawer-surface
+)::before {
+	position: absolute;
+	inset: 0 0 auto;
+	z-index: 4;
+	height: 2px;
+	background: linear-gradient(90deg, #ff344f, #5c74ff 54%, #28d7df);
+	content: '';
+	pointer-events: none;
+}
+
+.buildstudio-drawer-surface {
+	border-top: 1px solid var(--buildstudio-border) !important;
+	border-radius: 1.5rem 1.5rem 0 0;
+}
+
+.buildstudio-confirm-surface {
+	overflow: hidden;
+}
+
+:is(.buildstudio-modal-surface, .buildstudio-confirm-surface, .buildstudio-drawer-surface)
+	:is(
+		h1,
+		h2,
+		h3,
+		h4,
+		h5,
+		h6,
+		legend,
+		strong,
+		.text-black,
+		.text-gray-950,
+		.text-gray-900,
+		.text-gray-800,
+		.text-gray-700
+	) {
+	color: var(--buildstudio-text) !important;
+}
+
+:is(.buildstudio-modal-surface, .buildstudio-confirm-surface, .buildstudio-drawer-surface)
+	:is(.text-gray-600, .text-gray-500, .text-gray-400, .text-gray-300) {
+	color: var(--buildstudio-text-muted) !important;
+}
+
+:is(.buildstudio-modal-surface, .buildstudio-confirm-surface, .buildstudio-drawer-surface)
+	:is(.bg-white, .bg-gray-50, .bg-gray-100) {
+	background-color: rgba(12, 34, 70, 0.72) !important;
+}
+
+:is(.buildstudio-modal-surface, .buildstudio-confirm-surface, .buildstudio-drawer-surface)
+	:is(.border-white, .border-gray-50, .border-gray-100, .border-gray-200, .border-gray-300) {
+	border-color: var(--buildstudio-border-soft) !important;
+}
+
+:is(.buildstudio-modal-surface, .buildstudio-confirm-surface, .buildstudio-drawer-surface)
+	:is(a, button.link) {
+	color: #89adff;
+}
+
+:is(.buildstudio-modal-surface, .buildstudio-confirm-surface, .buildstudio-drawer-surface)
+	:is(
+		input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']),
+		textarea,
+		select,
+		[contenteditable='true']
+	) {
+	border-color: rgba(67, 112, 187, 0.6) !important;
+	background: rgba(5, 18, 42, 0.86) !important;
+	color: #e9f1ff !important;
+	box-shadow: none;
+}
+
+:is(.buildstudio-modal-surface, .buildstudio-confirm-surface, .buildstudio-drawer-surface)
+	:is(input, textarea)::placeholder {
+	color: #6f89b8 !important;
+}
+
+:is(.buildstudio-modal-surface, .buildstudio-confirm-surface, .buildstudio-drawer-surface)
+	:is(input, textarea, select):focus {
+	border-color: #5c83ff !important;
+	box-shadow: 0 0 0 3px rgba(92, 131, 255, 0.12) !important;
+}
+
+:is(.buildstudio-modal-surface, .buildstudio-confirm-surface, .buildstudio-drawer-surface) option {
+	background: #07172f;
+	color: var(--buildstudio-text);
+}
+
+:is(.buildstudio-modal-surface, .buildstudio-confirm-surface, .buildstudio-drawer-surface)
+	button:is(.bg-black, .bg-gray-900),
+.buildstudio-confirm-primary {
+	border: 1px solid rgba(103, 139, 255, 0.82) !important;
+	background: linear-gradient(100deg, #315de0, #557cff) !important;
+	color: #fff !important;
+	box-shadow: 0 10px 25px rgba(28, 73, 188, 0.25);
+}
+
+:is(.buildstudio-modal-surface, .buildstudio-confirm-surface, .buildstudio-drawer-surface)
+	button:is(.bg-black, .bg-gray-900):hover,
+.buildstudio-confirm-primary:hover {
+	background: linear-gradient(100deg, #3b68ec, #6488ff) !important;
+}
+
+.buildstudio-confirm-secondary {
+	border: 1px solid rgba(77, 111, 169, 0.46) !important;
+	background: rgba(18, 43, 83, 0.72) !important;
+	color: #c8d7f2 !important;
+}
+
+.buildstudio-settings-modal {
+	background:
+		radial-gradient(circle at 88% 8%, rgba(23, 108, 132, 0.12), transparent 28%),
+		linear-gradient(145deg, #071832, #030c1d) !important;
+}
+
+.buildstudio-settings-modal > nav {
+	border-color: rgba(61, 99, 158, 0.34) !important;
+	background: linear-gradient(180deg, rgba(9, 28, 61, 0.96), rgba(4, 14, 33, 0.97));
+}
+
+.buildstudio-settings-content {
+	background:
+		radial-gradient(circle at 100% 0%, rgba(45, 121, 152, 0.08), transparent 32%),
+		linear-gradient(180deg, rgba(7, 21, 47, 0.4), rgba(3, 12, 29, 0.18));
+}
+
+.buildstudio-settings-modal #settings-tabs-container [role='tab'] {
+	color: #91a9d6 !important;
+}
+
+.buildstudio-settings-modal #settings-tabs-container [role='tab']:hover {
+	background: rgba(32, 70, 132, 0.42) !important;
+	color: #eff5ff !important;
+}
+
+.buildstudio-settings-modal #settings-tabs-container [role='tab'][aria-selected='true'] {
+	background: linear-gradient(90deg, rgba(48, 91, 170, 0.74), rgba(24, 56, 111, 0.52)) !important;
+	box-shadow: inset 2px 0 0 var(--buildstudio-accent);
+	color: #fff !important;
+}
+
+.buildstudio-settings-modal #settings-tabs-container [role='tab'] svg {
+	color: #8eaff0;
+}
+
+.buildstudio-settings-modal #settings-tabs-container [role='tab'][aria-selected='true'] svg {
+	color: #dce8ff;
+}
+
+.buildstudio-settings-modal #settings-tabs-container > div:nth-of-type(1) {
+	border: 1px solid rgba(62, 103, 170, 0.42);
+	background: rgba(5, 18, 42, 0.78) !important;
+}
+
+.buildstudio-dropdown-menu,
+.buildstudio-listbox,
+.buildstudio-floating-panel {
+	border: 1px solid var(--buildstudio-border) !important;
+	background:
+		radial-gradient(circle at 12% 0%, rgba(44, 84, 166, 0.16), transparent 38%),
+		linear-gradient(145deg, rgba(9, 27, 58, 0.99), rgba(4, 13, 31, 0.995)) !important;
+	box-shadow:
+		0 24px 60px rgba(0, 0, 0, 0.48),
+		inset 0 0 0 1px rgba(79, 126, 255, 0.06) !important;
+	color: var(--buildstudio-text) !important;
+	color-scheme: dark;
+}
+
+:is(.buildstudio-dropdown-menu, .buildstudio-listbox, .buildstudio-floating-panel) :is(button, a) {
+	color: #d4e1f8 !important;
+}
+
+:is(.buildstudio-dropdown-menu, .buildstudio-listbox, .buildstudio-floating-panel)
+	:is(.bg-white, .bg-gray-50, .bg-gray-100) {
+	background-color: rgba(8, 25, 54, 0.86) !important;
+}
+
+:is(.buildstudio-dropdown-menu, .buildstudio-listbox, .buildstudio-floating-panel)
+	:is(.text-black, .text-gray-900, .text-gray-800, .text-gray-700) {
+	color: #d4e1f8 !important;
+}
+
+:is(.buildstudio-dropdown-menu, .buildstudio-listbox, .buildstudio-floating-panel)
+	:is(.text-gray-600, .text-gray-500, .text-gray-400) {
+	color: #91a9d6 !important;
+}
+
+:is(.buildstudio-dropdown-menu, .buildstudio-listbox)
+	:is(input:not([type='checkbox']):not([type='radio']), textarea) {
+	border-color: rgba(67, 112, 187, 0.5) !important;
+	background: rgba(4, 16, 38, 0.82) !important;
+	color: #e9f1ff !important;
+}
+
+:is(.buildstudio-dropdown-menu, .buildstudio-listbox, .buildstudio-floating-panel)
+	:is(button, a):hover,
+:is(.buildstudio-dropdown-menu, .buildstudio-listbox, .buildstudio-floating-panel)
+	:is(button, a)[data-arrow-selected='true'] {
+	background: linear-gradient(90deg, rgba(38, 81, 152, 0.62), rgba(20, 51, 102, 0.42)) !important;
+	color: #fff !important;
+}
+
+:is(.buildstudio-dropdown-menu, .buildstudio-listbox, .buildstudio-floating-panel) svg {
+	color: #9db8ed;
+}
+
+:is(.buildstudio-dropdown-menu, .buildstudio-listbox, .buildstudio-floating-panel) hr {
+	border-color: var(--buildstudio-border-soft) !important;
+}
+
+[data-sonner-toast],
+.buildstudio-notification-toast,
+.buildstudio-update-toast {
+	border: 1px solid var(--buildstudio-border) !important;
+	background:
+		radial-gradient(circle at 10% 0%, rgba(48, 88, 170, 0.18), transparent 42%),
+		linear-gradient(145deg, rgba(9, 27, 58, 0.98), rgba(4, 13, 31, 0.99)) !important;
+	box-shadow: 0 20px 55px rgba(0, 0, 0, 0.48) !important;
+	color: var(--buildstudio-text) !important;
+}
+
+[data-sonner-toast] [data-description],
+.buildstudio-notification-toast :is(.text-gray-300, .text-gray-400, .text-gray-500),
+.buildstudio-update-toast {
+	color: #9fb6df !important;
+}
+
+[data-sonner-toast] [data-close-button] {
+	border-color: rgba(75, 111, 172, 0.56) !important;
+	background: #0a2147 !important;
+	color: #c7d7f4 !important;
+}
+
+@media (max-width: 767px) {
+	.buildstudio-settings-modal > nav {
+		background: rgba(6, 20, 45, 0.96);
+	}
+}

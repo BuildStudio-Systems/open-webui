@@ -1023,7 +1023,7 @@
 		>
 			<div
 				bind:this={panelElement}
-				class="z-40 {className ??
+				class="buildstudio-dropdown-menu z-40 {className ??
 					'w-[20rem]'} max-w-[calc(100vw-1rem)] justify-start rounded-xl border border-gray-100 bg-white p-0.5 shadow-lg outline-hidden dark:border-gray-800 dark:bg-gray-850 dark:text-white flex flex-col overflow-hidden"
 				style={dropdownPosition.maxHeight ? `max-height: ${dropdownPosition.maxHeight}px;` : ''}
 				transition:flyAndScale

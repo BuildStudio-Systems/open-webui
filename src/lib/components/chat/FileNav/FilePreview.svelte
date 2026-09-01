@@ -513,7 +513,7 @@
 
 	{#if !fileLoading && fileImageUrl !== null}
 		<div
-			class="absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 items-center gap-0.5 rounded-lg border border-gray-200/60 bg-white/90 px-1 py-0.5 shadow-lg backdrop-blur-sm dark:border-gray-700/60 dark:bg-gray-850/90"
+			class="buildstudio-floating-panel absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 items-center gap-0.5 rounded-lg border border-gray-200/60 bg-white/90 px-1 py-0.5 shadow-lg backdrop-blur-sm dark:border-gray-700/60 dark:bg-gray-850/90"
 		>
 			<!-- Pinch covers in/out on coarse pointers; reset has no gesture, so it stays -->
 			<button

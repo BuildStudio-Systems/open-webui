@@ -127,7 +127,7 @@
 				<div
 					use:portal
 					bind:this={popupElement}
-					class="fixed w-48 max-h-48 overflow-y-auto rounded-2xl border border-gray-200 bg-white p-0.5 shadow-lg dark:border-gray-800 dark:bg-gray-850"
+					class="buildstudio-listbox fixed w-48 max-h-48 overflow-y-auto rounded-2xl border border-gray-200 bg-white p-0.5 shadow-lg dark:border-gray-800 dark:bg-gray-850"
 					role="listbox"
 					style="z-index: 9999; top: 0; left: 0;"
 				>

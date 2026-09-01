@@ -166,7 +166,7 @@
 
 	<div slot="content">
 		<div
-			class="max-w-full w-72 border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-850 rounded-xl z-9999 shadow-lg dark:text-white"
+			class="buildstudio-dropdown-menu max-w-full w-72 border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-850 rounded-xl z-9999 shadow-lg dark:text-white"
 		>
 			<div class="mb-0.5 px-3 pt-2 pb-1.5">
 				<input

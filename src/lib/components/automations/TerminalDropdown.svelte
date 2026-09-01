@@ -49,7 +49,7 @@
 
 		<div
 			slot="content"
-			class="rounded-xl shadow-lg border border-gray-200 dark:border-gray-800 flex flex-col bg-white dark:bg-gray-850 min-w-56 max-w-56 p-0.5"
+			class="buildstudio-dropdown-menu rounded-xl shadow-lg border border-gray-200 dark:border-gray-800 flex flex-col bg-white dark:bg-gray-850 min-w-56 max-w-56 p-0.5"
 		>
 			<div class="px-2 text-[0.6875rem] text-gray-500 py-0.5">
 				{$i18n.t('Terminal')}

@@ -1168,7 +1168,7 @@
 							id="sidebar-webui-name"
 							class=" self-center font-normal text-gray-700 dark:text-gray-200"
 						>
-							{$WEBUI_NAME}
+							BuildStudio-There
 						</div>
 					</a>
 					<Tooltip

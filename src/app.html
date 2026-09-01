@@ -75,12 +75,8 @@
 					metaThemeColorTag.setAttribute('content', '#171717');
 				}
 
-				// LICENSE covers these Open WebUI splash logo assets.
-				// Do not alter, remove, obscure, or replace them except as LICENSE permits:
-				// https://docs.openwebui.com/license.
-				const preloadHref = document.documentElement.classList.contains('dark')
-					? '/static/splash-dark.png'
-					: '/static/splash.png';
+				// Custom splash branding is subject to the Open WebUI license's branding terms.
+				const preloadHref = '/assets/buildstudio-there-emblem.png';
 				const preload = document.createElement('link');
 				preload.rel = 'preload';
 				preload.as = 'image';
@@ -101,31 +97,10 @@
 						}
 					}
 				});
-				const isDarkMode = document.documentElement.classList.contains('dark');
-
-				const logo = document.createElement('img');
-				logo.id = 'logo';
-				logo.style =
-					'position: absolute; width: auto; height: 6rem; top: 44%; left: 50%; transform: translateX(-50%); display:block;';
-				logo.loading = 'eager';
-				logo.fetchPriority = 'high';
-				// LICENSE covers this Open WebUI splash logo.
-				// Do not alter, remove, obscure, or replace it except as LICENSE permits:
-				// https://docs.openwebui.com/license.
-				logo.src = isDarkMode ? '/static/splash-dark.png' : '/static/splash.png';
-
-				document.addEventListener('DOMContentLoaded', function () {
-					const splash = document.getElementById('splash-screen');
-					if (document.documentElement.classList.contains('her')) {
-						return;
-					}
-
-					if (splash) splash.prepend(logo);
-				});
 			})();
 		</script>
 
-		<title>Open WebUI</title>
+		<title>BuildStudio-There</title>
 
 		%sveltekit.head%
 	</head>
@@ -143,20 +118,32 @@
 				}
 			</style>
 
-			<div
-				style="
-					position: absolute;
-					top: 33%;
-					left: 50%;
+			<div id="buildstudio-splash-content">
+				<div id="buildstudio-splash-logo-shell">
+					<img
+						id="buildstudio-splash-logo"
+						src="/assets/buildstudio-there-emblem.png"
+						alt="Build Studio"
+						loading="eager"
+						fetchpriority="high"
+					/>
+				</div>
 
-					width: 24rem;
-					transform: translateX(-50%);
+				<div id="buildstudio-splash-kicker">
+					<span></span>
+					Build Studio · AI
+					<span></span>
+				</div>
 
-					display: flex;
-					flex-direction: column;
-					align-items: center;
-				"
-			>
+				<h1 id="buildstudio-splash-title">
+					Welcome to Build Studio's Artificial Intelligence System
+					<strong>— There.</strong>
+				</h1>
+
+				<div id="buildstudio-splash-loader" aria-hidden="true"></div>
+			</div>
+
+			<div id="her-splash-content">
 				<!-- LICENSE covers this Open WebUI splash logo.
 				Do not alter, remove, obscure, or replace it except as LICENSE permits:
 				https://docs.openwebui.com/license. -->
@@ -209,19 +196,159 @@
 		}
 
 		#splash-screen {
-			background: #fff;
+			background:
+				linear-gradient(rgba(99, 130, 209, 0.018) 1px, transparent 1px),
+				linear-gradient(90deg, rgba(99, 130, 209, 0.018) 1px, transparent 1px),
+				radial-gradient(ellipse 58% 92% at 12% 48%, rgba(42, 91, 218, 0.28), transparent 70%),
+				linear-gradient(112deg, #0b1537 0%, #0a1630 34%, #091525 62%, #07110f 100%);
+			background-size:
+				36px 36px,
+				36px 36px,
+				auto,
+				auto;
 		}
 
 		html.dark #splash-screen {
-			background: #000;
+			background-color: #071023;
 		}
 
 		html.her #splash-screen {
 			background: #983724;
 		}
 
-		#logo-her {
+		#buildstudio-splash-content {
+			position: absolute;
+			top: 50%;
+			left: 50%;
+			width: min(42rem, calc(100% - 3rem));
+			transform: translate(-50%, -50%);
+			display: flex;
+			flex-direction: column;
+			align-items: center;
+			text-align: center;
+			font-family:
+				Inter,
+				ui-sans-serif,
+				system-ui,
+				-apple-system,
+				BlinkMacSystemFont,
+				'Segoe UI',
+				sans-serif;
+		}
+
+		#buildstudio-splash-logo-shell {
+			position: relative;
+			width: 7.5rem;
+			height: 7.5rem;
+			display: grid;
+			place-items: center;
+			margin-bottom: 0.75rem;
+			animation: buildstudio-float 2.8s ease-in-out infinite;
+		}
+
+		#buildstudio-splash-logo-shell::before {
+			content: '';
+			position: absolute;
+			inset: 1.3rem;
+			border-radius: 9999px;
+			background: linear-gradient(135deg, rgba(239, 35, 48, 0.24), rgba(29, 78, 216, 0.28));
+			filter: blur(1.25rem);
+		}
+
+		#buildstudio-splash-logo {
+			position: relative;
+			width: 7rem;
+			height: 7rem;
+			object-fit: contain;
+			filter: drop-shadow(0 0.8rem 1.4rem rgba(20, 64, 180, 0.28));
+		}
+
+		#buildstudio-splash-kicker {
+			display: flex;
+			align-items: center;
+			gap: 0.75rem;
+			margin-bottom: 0.8rem;
+			color: #7da0ff;
+			font-size: 0.68rem;
+			font-weight: 700;
+			letter-spacing: 0.28em;
+			text-transform: uppercase;
+		}
+
+		#buildstudio-splash-kicker span {
+			width: 2.25rem;
+			height: 1px;
+			background: linear-gradient(90deg, transparent, #ef2330);
+		}
+
+		#buildstudio-splash-kicker span:last-child {
+			background: linear-gradient(90deg, #2563eb, transparent);
+		}
+
+		#buildstudio-splash-title {
+			max-width: 40rem;
+			margin: 0;
+			color: #f4f7ff;
+			font-size: clamp(1.4rem, 3vw, 2.15rem);
+			font-weight: 580;
+			letter-spacing: -0.035em;
+			line-height: 1.2;
+		}
+
+		#buildstudio-splash-title strong {
+			white-space: nowrap;
+			font-weight: 720;
+			background: linear-gradient(90deg, #e62032 0%, #28317c 48%, #075be7 100%);
+			-webkit-background-clip: text;
+			background-clip: text;
+			color: transparent;
+		}
+
+		#buildstudio-splash-loader {
+			position: relative;
+			width: 7rem;
+			height: 2px;
+			margin-top: 1.6rem;
+			overflow: hidden;
+			border-radius: 9999px;
+			background: rgba(125, 160, 255, 0.16);
+		}
+
+		#buildstudio-splash-loader::after {
+			content: '';
+			position: absolute;
+			inset: 0;
+			width: 48%;
+			border-radius: inherit;
+			background: linear-gradient(90deg, #ef2330, #243b89, #1262ed);
+			animation: buildstudio-loading 1.25s ease-in-out infinite;
+		}
+
+		html.dark #buildstudio-splash-title {
+			color: #f8fafc;
+		}
+
+		html.dark #buildstudio-splash-kicker {
+			color: #93c5fd;
+		}
+
+		html.dark #buildstudio-splash-loader {
+			background: rgba(147, 197, 253, 0.14);
+		}
+
+		#her-splash-content {
+			position: absolute;
+			top: 33%;
+			left: 50%;
+			width: 24rem;
+			transform: translateX(-50%);
 			display: none;
+			flex-direction: column;
+			align-items: center;
+		}
+
+		#logo-her {
+			display: block;
 		}
 
 		#progress-background {
@@ -232,13 +359,16 @@
 			display: none;
 		}
 
-		html.her #logo {
+		html.her #buildstudio-splash-content {
 			display: none;
 		}
 
+		html.her #her-splash-content {
+			display: flex;
+		}
+
 		html.her #logo-her {
-			display: block;
-			filter: invert(1);
+			filter: none;
 		}
 
 		html.her #progress-background {
@@ -265,8 +395,53 @@
 			}
 		}
 
+		@keyframes buildstudio-float {
+			0%,
+			100% {
+				transform: translateY(0);
+			}
+			50% {
+				transform: translateY(-0.35rem);
+			}
+		}
+
+		@keyframes buildstudio-loading {
+			0% {
+				transform: translateX(-120%);
+			}
+			100% {
+				transform: translateX(245%);
+			}
+		}
+
 		.animate-pulse-fast {
 			animation: pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+		}
+
+		@media (max-width: 36rem) {
+			#buildstudio-splash-content {
+				width: calc(100% - 2rem);
+			}
+
+			#buildstudio-splash-logo-shell {
+				width: 6.5rem;
+				height: 6.5rem;
+			}
+
+			#buildstudio-splash-logo {
+				width: 6rem;
+				height: 6rem;
+			}
+
+			#buildstudio-splash-kicker {
+				gap: 0.55rem;
+				font-size: 0.6rem;
+				letter-spacing: 0.22em;
+			}
+
+			#buildstudio-splash-kicker span {
+				width: 1.5rem;
+			}
 		}
 	</style>
 </html>

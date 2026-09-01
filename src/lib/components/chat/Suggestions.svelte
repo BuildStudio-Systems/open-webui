@@ -67,7 +67,7 @@
 <div class="mb-1 flex gap-1 text-xs font-normal items-center text-gray-600 dark:text-gray-400">
 	{#if filteredPrompts.length > 0}
 		<Bolt />
-		{$i18n.t('Suggested')}
+		SUGGESTED STARTERS
 	{:else}
 		<!-- Keine Vorschläge -->
 
@@ -118,7 +118,7 @@
 							<div
 								class="text-xs text-gray-600 group-hover:text-gray-900 dark:text-gray-400 dark:group-hover:text-gray-100 font-normal line-clamp-1"
 							>
-								{$i18n.t('Prompt')}
+								PROMPT
 							</div>
 						{/if}
 					</div>

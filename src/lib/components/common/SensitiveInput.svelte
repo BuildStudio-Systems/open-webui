@@ -12,6 +12,7 @@
 	export let outerClassName = 'flex flex-1';
 	export let inputClassName = '';
 	export let showButtonClassName = '';
+	export let showButtonLabel: string | undefined = undefined;
 	export let screenReader = true;
 	export let autocomplete = 'off';
 	export let name: string | undefined = undefined;
@@ -56,7 +57,7 @@
 		class={buttonClass}
 		type="button"
 		aria-pressed={show}
-		aria-label={$i18n.t('Make password visible in the user interface')}
+		aria-label={showButtonLabel ?? $i18n.t('Make password visible in the user interface')}
 		on:click={(e) => {
 			e.preventDefault();
 			show = !show;

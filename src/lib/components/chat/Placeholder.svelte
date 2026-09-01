@@ -1,14 +1,8 @@
 <script lang="ts">
-	import { toast } from 'svelte-sonner';
-	import { marked } from 'marked';
-	import DOMPurify from 'dompurify';
-
-	import { onMount, getContext, tick, createEventDispatcher } from 'svelte';
-	import { blur, fade } from 'svelte/transition';
+	import { getContext, createEventDispatcher } from 'svelte';
+	import { fade } from 'svelte/transition';
 
 	const dispatch = createEventDispatcher();
-
-	import { updateFolderById } from '$lib/apis/folders';
 
 	import {
 		config,
@@ -18,8 +12,6 @@
 		selectedFolder
 	} from '$lib/stores';
 	import { refreshChatList, refreshFolderChatLists } from '$lib/stores/chatList';
-	import { sanitizeResponseContent, extractCurlyBraceWords } from '$lib/utils';
-	import { WEBUI_API_BASE_URL, WEBUI_BASE_URL } from '$lib/constants';
 
 	import Suggestions from './Suggestions.svelte';
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
@@ -94,7 +86,7 @@
 		$selectedFolder.permission !== 'write';
 </script>
 
-<div class="m-auto w-full max-w-[58rem] px-1 @2xl:px-20 translate-y-6 py-24 text-center">
+<div class="there-main-landing m-auto w-full max-w-[66rem] px-5 @2xl:px-16 py-16 text-center">
 	{#if $temporaryChatEnabled}
 		<Tooltip
 			content={$i18n.t("This chat won't appear in history and your messages will not be saved.")}
@@ -123,112 +115,37 @@
 					}}
 				/>
 			{:else}
-				<div class="flex flex-row justify-center gap-2.5 @sm:gap-3 w-fit px-5 max-w-xl">
-					<div class="flex shrink-0 justify-center">
-						<div class="flex -space-x-4 mb-0.5" in:fade={{ duration: 100 }}>
-							{#each models as model, modelIdx}
-								<Tooltip
-									content={(models[modelIdx]?.info?.meta?.tags ?? [])
-										.map((tag) => tag.name.toUpperCase())
-										.join(', ')}
-									placement="top"
-								>
-									<button
-										aria-hidden={models.length <= 1}
-										aria-label={$i18n.t('Get information on {{name}} in the UI', {
-											name: models[modelIdx]?.name
-										})}
-										on:click={() => {
-											selectedModelIdx = modelIdx;
-										}}
-									>
-										<img
-											src={`${WEBUI_API_BASE_URL}/models/model/profile/image?id=${model?.id}&lang=${$i18n.language}`}
-											class=" size-9 @sm:size-10 rounded-2xl"
-											aria-hidden="true"
-											draggable="false"
-											on:error={(e) => {
-												// LICENSE covers this Open WebUI fallback logo.
-												// Do not alter, remove, obscure, or replace it except as LICENSE permits:
-												// https://docs.openwebui.com/license.
-												e.currentTarget.src = '/favicon.png';
-											}}
-										/>
-									</button>
-								</Tooltip>
-							{/each}
+				<div class="there-agent-intro" in:fade={{ duration: 180 }}>
+					<div class="there-agent-identity">
+						<img src="/assets/buildstudio-there-emblem.png" alt="There" draggable="false" />
+						<div>
+							<div class="there-agent-eyebrow"><i></i> BUILDSTUDIO AI AGENT</div>
+							<div class="there-agent-status">LOCAL SYSTEM · ONLINE</div>
 						</div>
 					</div>
 
-					<div
-						class=" text-2xl @sm:text-2xl line-clamp-1 flex items-center"
-						in:fade={{ duration: 100 }}
-					>
-						{#if models[selectedModelIdx]?.name}
-							<Tooltip
-								content={models[selectedModelIdx]?.name}
-								placement="top"
-								className=" flex items-center "
-							>
-								<span class="line-clamp-1">
-									{models[selectedModelIdx]?.name}
-								</span>
-							</Tooltip>
-						{:else}
-							{$i18n.t('Hello, {{name}}', { name: $user?.name })}
-						{/if}
-					</div>
-				</div>
+					<h1>Welcome back, <span>{$user?.name ?? 'User'}.</span></h1>
+					<p>I’m There, BuildStudio’s AI agent. How can I help you today?</p>
 
-				<div class="flex mt-1 mb-2">
-					<div in:fade={{ duration: 100, delay: 50 }}>
-						{#if models[selectedModelIdx]?.info?.meta?.description ?? null}
-							<Tooltip
-								className=" w-fit"
-								content={DOMPurify.sanitize(
-									marked.parse(
-										sanitizeResponseContent(
-											models[selectedModelIdx]?.info?.meta?.description ?? ''
-										).replaceAll('\n', '<br>')
-									)
-								)}
-								placement="top"
-							>
-								<div
-									class="mt-0.5 px-2 text-sm font-normal text-gray-500 dark:text-gray-400 line-clamp-2 max-w-xl markdown"
-								>
-									{@html DOMPurify.sanitize(
-										marked.parse(
-											sanitizeResponseContent(
-												models[selectedModelIdx]?.info?.meta?.description ?? ''
-											).replaceAll('\n', '<br>')
-										)
-									)}
-								</div>
-							</Tooltip>
-
-							{#if models[selectedModelIdx]?.info?.meta?.user}
-								<div class="mt-0.5 text-sm font-normal text-gray-400 dark:text-gray-500">
-									By
-									{#if models[selectedModelIdx]?.info?.meta?.user.community}
-										<a
-											href="https://openwebui.com/m/{models[selectedModelIdx]?.info?.meta?.user
-												.username}"
-											>{models[selectedModelIdx]?.info?.meta?.user.name
-												? models[selectedModelIdx]?.info?.meta?.user.name
-												: `@${models[selectedModelIdx]?.info?.meta?.user.username}`}</a
-										>
-									{:else}
-										{models[selectedModelIdx]?.info?.meta?.user.name}
-									{/if}
-								</div>
-							{/if}
-						{/if}
-					</div>
+					{#if models[selectedModelIdx]?.name}
+						<button
+							class="there-active-model"
+							type="button"
+							on:click={() => {
+								selectedModelIdx = (selectedModelIdx + 1) % models.length;
+							}}
+						>
+							<span></span>{models[selectedModelIdx]?.name}
+						</button>
+					{/if}
 				</div>
 			{/if}
 
-			<div class="text-base font-normal @md:max-w-3xl w-full py-3 {atSelectedModel ? 'mt-2' : ''}">
+			<div
+				class="there-message-composer text-base font-normal @md:max-w-3xl w-full py-3 {atSelectedModel
+					? 'mt-2'
+					: ''}"
+			>
 				{#if !($selectedFolder && folderReadOnly)}
 					<MessageInput
 						bind:this={messageInput}
@@ -252,7 +169,7 @@
 						{onToolApprovalModeChange}
 						{stopResponse}
 						{createMessagePair}
-						placeholder={$i18n.t('How can I help you today?')}
+						placeholder="Ask There anything..."
 						{onChange}
 						{onUpload}
 						{onUpdate}
@@ -277,9 +194,10 @@
 			<FolderPlaceholder folder={$selectedFolder} />
 		</div>
 	{:else}
-		<div class="mx-auto max-w-2xl mt-2" in:fade={{ duration: 200, delay: 200 }}>
+		<div class="there-suggestions mx-auto max-w-3xl mt-3" in:fade={{ duration: 200, delay: 200 }}>
 			<div class="mx-5">
 				<Suggestions
+					className="grid grid-cols-1 @md:grid-cols-2 gap-2"
 					suggestionPrompts={atSelectedModel?.info?.meta?.suggestion_prompts ??
 						models[selectedModelIdx]?.info?.meta?.suggestion_prompts ??
 						$config?.default_prompt_suggestions ??
@@ -291,3 +209,166 @@
 		</div>
 	{/if}
 </div>
+
+<style>
+	.there-main-landing {
+		position: relative;
+		z-index: 1;
+	}
+
+	.there-agent-intro {
+		display: flex;
+		max-width: 760px;
+		margin: 0 auto 4px;
+		flex-direction: column;
+		align-items: center;
+	}
+
+	.there-agent-identity {
+		display: flex;
+		align-items: center;
+		gap: 13px;
+		margin-bottom: 24px;
+		padding: 8px 13px 8px 9px;
+		border: 1px solid rgba(104, 138, 215, 0.2);
+		border-radius: 14px;
+		background: rgba(6, 17, 40, 0.58);
+		box-shadow: 0 14px 32px rgba(2, 7, 18, 0.2);
+		backdrop-filter: blur(14px);
+	}
+
+	.there-agent-identity img {
+		width: 48px;
+		height: 48px;
+		object-fit: contain;
+		filter: drop-shadow(0 7px 12px rgba(2, 8, 23, 0.34));
+	}
+
+	.there-agent-identity > div {
+		text-align: left;
+	}
+
+	.there-agent-eyebrow,
+	.there-agent-status {
+		font-family: 'Cascadia Mono', Consolas, monospace;
+		font-weight: 650;
+		line-height: 1.25;
+	}
+
+	.there-agent-eyebrow {
+		display: flex;
+		align-items: center;
+		gap: 7px;
+		color: #a9bce7;
+		font-size: 9px;
+		letter-spacing: 0.16em;
+	}
+
+	.there-agent-eyebrow i {
+		width: 5px;
+		height: 5px;
+		border-radius: 50%;
+		background: #55d4b1;
+		box-shadow: 0 0 10px rgba(85, 212, 177, 0.9);
+	}
+
+	.there-agent-status {
+		margin-top: 5px;
+		color: #5f78ad;
+		font-size: 8px;
+		letter-spacing: 0.12em;
+	}
+
+	.there-agent-intro h1 {
+		margin: 0;
+		color: #f4f7ff;
+		font-size: clamp(34px, 4.2vw, 52px);
+		font-weight: 680;
+		letter-spacing: -0.055em;
+		line-height: 1.05;
+	}
+
+	.there-agent-intro h1 span {
+		color: #86a4ff;
+	}
+
+	.there-agent-intro p {
+		margin: 14px 0 0;
+		color: #8fa2ca;
+		font-size: 13px;
+		line-height: 1.65;
+	}
+
+	.there-active-model {
+		display: flex;
+		align-items: center;
+		gap: 7px;
+		margin-top: 14px;
+		padding: 6px 10px;
+		border: 1px solid rgba(101, 136, 218, 0.2);
+		border-radius: 999px;
+		color: #91a7d2;
+		background: rgba(8, 21, 49, 0.5);
+		font-family: 'Cascadia Mono', Consolas, monospace;
+		font-size: 9px;
+		letter-spacing: 0.08em;
+	}
+
+	.there-active-model span {
+		width: 5px;
+		height: 5px;
+		border-radius: 50%;
+		background: #5d86ff;
+		box-shadow: 0 0 10px rgba(93, 134, 255, 0.8);
+	}
+
+	.there-message-composer {
+		margin-top: 14px;
+	}
+
+	.there-message-composer :global(#message-input-container) {
+		border: 1px solid rgba(101, 136, 218, 0.28) !important;
+		border-radius: 18px !important;
+		background: rgba(8, 21, 49, 0.72) !important;
+		box-shadow:
+			0 18px 48px rgba(2, 7, 18, 0.32),
+			inset 0 1px 0 rgba(255, 255, 255, 0.025) !important;
+		backdrop-filter: blur(18px);
+	}
+
+	.there-message-composer :global(#message-input-container:focus-within) {
+		border-color: rgba(87, 128, 255, 0.7) !important;
+		box-shadow:
+			0 20px 55px rgba(2, 7, 18, 0.38),
+			0 0 0 3px rgba(76, 120, 255, 0.08) !important;
+	}
+
+	.there-suggestions :global([role='listitem']) {
+		min-height: 54px;
+		padding: 10px 12px !important;
+		border: 1px solid rgba(101, 136, 218, 0.14);
+		border-radius: 12px !important;
+		background: rgba(8, 21, 49, 0.34) !important;
+	}
+
+	.there-suggestions :global([role='listitem']:hover) {
+		border-color: rgba(92, 130, 231, 0.35);
+		background: rgba(12, 30, 67, 0.64) !important;
+		transform: translateY(-1px);
+	}
+
+	@media (max-width: 640px) {
+		.there-main-landing {
+			padding-top: 36px;
+			padding-bottom: 36px;
+		}
+
+		.there-agent-identity {
+			margin-bottom: 18px;
+		}
+
+		.there-agent-intro p {
+			max-width: 310px;
+		}
+	}
+</style>

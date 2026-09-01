@@ -1373,7 +1373,7 @@
 	visual, textual, symbolic identifiers, metadata, and surrounding UI.
 	Do not alter, remove, obscure, or replace it except as LICENSE permits:
 	https://docs.openwebui.com/license. -->
-	<title>{$WEBUI_NAME}</title>
+	<title>BuildStudio-There</title>
 	<link crossorigin="anonymous" rel="icon" href="{WEBUI_BASE_URL}/static/favicon.png" />
 
 	<meta name="apple-mobile-web-app-title" content={$WEBUI_NAME} />
@@ -1391,7 +1391,11 @@
 	href="#main-content"
 	class="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-[9999] focus:rounded-lg focus:bg-white focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-gray-900 focus:shadow-lg dark:focus:bg-gray-800 dark:focus:text-gray-100"
 >
-	{$i18n.t('Skip to main content')}
+	{#if $page.url.pathname === '/auth'}
+		Skip to main content
+	{:else}
+		{$i18n.t('Skip to main content')}
+	{/if}
 </a>
 
 {#if showRefresh}

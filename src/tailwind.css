@@ -10,18 +10,25 @@
 	--font-primary: var(--font-sans);
 	--font-secondary: var(--font-sans);
 
-	--color-gray-50: oklch(0.98 0 0);
-	--color-gray-100: oklch(0.94 0 0);
-	--color-gray-200: oklch(0.92 0 0);
-	--color-gray-300: oklch(0.85 0 0);
-	--color-gray-400: oklch(0.77 0 0);
-	--color-gray-500: oklch(0.69 0 0);
-	--color-gray-600: oklch(0.51 0 0);
-	--color-gray-700: oklch(0.42 0 0);
-	--color-gray-800: oklch(0.32 0 0);
-	--color-gray-850: oklch(0.27 0 0);
-	--color-gray-900: oklch(0.2 0 0);
-	--color-gray-950: oklch(0.16 0 0);
+	/* BuildStudio Monitor palette: color only, preserving every existing component and layout. */
+	--color-gray-50: #f6f8ff;
+	--color-gray-100: #eef3ff;
+	--color-gray-200: #dbe4f5;
+	--color-gray-300: #cbd5ec;
+	--color-gray-400: #aab7d3;
+	--color-gray-500: #8293ba;
+	--color-gray-600: #52658f;
+	--color-gray-700: #24375a;
+	--color-gray-800: #132342;
+	--color-gray-850: #0d1a38;
+	--color-gray-900: #0a1530;
+	--color-gray-950: #071023;
+
+	--color-blue-400: #7da0ff;
+	--color-blue-500: #4c78ff;
+	--color-blue-600: #355edb;
+	--color-cyan-500: #20c1f0;
+	--color-red-500: #ef4052;
 }
 
 /*

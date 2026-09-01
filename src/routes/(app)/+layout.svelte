@@ -18,6 +18,7 @@
 
 	import { WEBUI_VERSION, WEBUI_API_BASE_URL } from '$lib/constants';
 	import { compareVersion } from '$lib/utils';
+	import { changeLanguage } from '$lib/i18n';
 
 	import {
 		config,
@@ -236,6 +237,8 @@
 	};
 
 	onMount(async () => {
+		await changeLanguage('en-US');
+
 		if ($user === undefined || $user === null) {
 			await gotoAuth();
 			return;
@@ -468,10 +471,8 @@
 {/if}
 
 {#if $user}
-	<div class="app relative">
-		<div
-			class=" text-gray-700 dark:text-gray-100 bg-white dark:bg-gray-900 h-screen max-h-[100dvh] overflow-auto flex flex-row justify-end"
-		>
+	<div class="app relative dark there-app-shell">
+		<div class="there-app-surface h-screen max-h-[100dvh] overflow-auto flex flex-row justify-end">
 			{#if !['user', 'admin'].includes($user?.role)}
 				<AccountPending />
 			{:else}
@@ -551,6 +552,62 @@
 {/if}
 
 <style>
+	.there-app-shell {
+		isolation: isolate;
+		color: #dce7ff;
+		background: #061127;
+	}
+
+	.there-app-surface {
+		position: relative;
+		color: #dce7ff;
+		background:
+			radial-gradient(circle at 22% 8%, rgba(48, 82, 184, 0.2), transparent 34%),
+			radial-gradient(circle at 100% 100%, rgba(16, 125, 115, 0.1), transparent 30%),
+			linear-gradient(135deg, #07142f 0%, #061126 56%, #04131e 100%);
+	}
+
+	.there-app-surface::before {
+		position: absolute;
+		inset: 0;
+		z-index: 0;
+		background-image:
+			linear-gradient(rgba(100, 129, 197, 0.025) 1px, transparent 1px),
+			linear-gradient(90deg, rgba(100, 129, 197, 0.025) 1px, transparent 1px);
+		background-size: 44px 44px;
+		content: '';
+		pointer-events: none;
+	}
+
+	:global(.there-app-shell #chat-container) {
+		position: relative;
+		z-index: 1;
+		background: transparent;
+	}
+
+	:global(.there-app-shell #sidebar) {
+		color: #aebddd;
+		border-color: rgba(99, 127, 190, 0.16) !important;
+		background: rgba(5, 14, 32, 0.9) !important;
+		box-shadow: 12px 0 36px rgba(2, 7, 18, 0.18);
+		backdrop-filter: blur(18px);
+	}
+
+	:global(.there-app-shell #sidebar .sidebar) {
+		background: rgba(5, 14, 32, 0.94);
+	}
+
+	:global(.there-app-shell #sidebar-webui-name) {
+		color: #edf3ff !important;
+		font-weight: 650;
+		letter-spacing: -0.02em;
+	}
+
+	:global(.there-app-shell #sidebar a:hover),
+	:global(.there-app-shell #sidebar button:hover) {
+		color: #ffffff;
+	}
+
 	.loading {
 		display: inline-block;
 		clip-path: inset(0 1ch 0 0);

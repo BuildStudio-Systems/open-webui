@@ -67,6 +67,15 @@
 	import { AudioQueue } from '$lib/utils/audio';
 	import { createTemporaryChatId, isTemporaryChatId } from '$lib/utils/chatId';
 	import { applyResponseStreamEvent, getOutputText } from './Messages/structuredOutput';
+	import {
+		applyThinkingModeToParams,
+		getThinkingModeFromParams,
+		mergeChatParams,
+		modelSupportsThinking,
+		setThinkingModeInParams,
+		stripThinkingModeParam,
+		type ThinkingMode
+	} from '$lib/utils/thinking';
 
 	import {
 		archiveChatById,
@@ -410,6 +419,7 @@
 	let chatFiles = [];
 	let files: any[] = [];
 	let params = {};
+	let thinkingMode: ThinkingMode = 'off';
 	let chatVariables = {};
 	let showChatVariablesModal = false;
 	let loadedChatIdProp = '';
@@ -419,6 +429,11 @@
 		(params?.tool_approval_mode ?? $settings?.params?.tool_approval_mode) === 'ask'
 			? 'ask'
 			: 'full';
+	$: thinkingMode = getThinkingModeFromParams(mergeChatParams($settings?.params, params));
+
+	const handleThinkingModeChange = (mode: ThinkingMode) => {
+		params = setThinkingModeInParams(params, mode);
+	};
 
 	const handleToolApprovalModeChange = async (mode: string) => {
 		const tool_approval_mode = mode === 'ask' ? 'ask' : 'full';
@@ -753,6 +768,9 @@
 			webSearchEnabled = input.webSearchEnabled ?? false;
 			imageGenerationEnabled = input.imageGenerationEnabled ?? false;
 			codeInterpreterEnabled = input.codeInterpreterEnabled ?? false;
+			if (input.thinkingMode) {
+				handleThinkingModeChange(input.thinkingMode);
+			}
 			if (input.toolApprovalMode) {
 				await handleToolApprovalModeChange(input.toolApprovalMode);
 			}
@@ -2118,6 +2136,8 @@
 
 		autoScroll = true;
 
+		params = {};
+
 		// resetInput() must stay last: the selected model's defaults override the draft's selection.
 		await restoreChatInput(sessionStorage.getItem('chat-input'));
 		await resetInput();
@@ -2130,7 +2150,6 @@
 		};
 
 		chatFiles = [];
-		params = {};
 		chatVariables = {};
 		taskIds = null;
 		chatTasks = [];
@@ -3545,6 +3564,11 @@
 		const useChatVariablesFallback =
 			!_chatId || $temporaryChatEnabled || isTemporaryChatId(_chatId);
 
+		const mergedRequestParams = mergeChatParams($settings?.params, params);
+		const requestParams = modelSupportsThinking(model)
+			? applyThinkingModeToParams(mergedRequestParams, thinkingMode)
+			: stripThinkingModeParam(mergedRequestParams);
+
 		const res = await generateOpenAIChatCompletion(
 			localStorage.token,
 			{
@@ -3552,8 +3576,7 @@
 				model: model.id,
 				...(messages.length > 0 ? { messages } : {}),
 				params: {
-					...$settings?.params,
-					...params,
+					...requestParams,
 					stop: getStopTokens()
 				},
 
@@ -4019,6 +4042,7 @@
 		imageGenerationEnabled,
 		webSearchEnabled,
 		codeInterpreterEnabled,
+		thinkingMode,
 		toolApprovalMode
 	});
 
@@ -4431,6 +4455,7 @@
 										bind:selectedFilterIds
 										bind:imageGenerationEnabled
 										bind:codeInterpreterEnabled
+										{thinkingMode}
 										{pendingOAuthTools}
 										{oauthRedirectHandler}
 										bind:webSearchEnabled
@@ -4447,6 +4472,7 @@
 										forkHandler={handleForkChat}
 										{toolApprovalMode}
 										onToolApprovalModeChange={handleToolApprovalModeChange}
+										onThinkingModeChange={handleThinkingModeChange}
 										{generating}
 										{stopResponse}
 										{createMessagePair}
@@ -4523,6 +4549,7 @@
 										bind:selectedFilterIds
 										bind:imageGenerationEnabled
 										bind:codeInterpreterEnabled
+										{thinkingMode}
 										{pendingOAuthTools}
 										{oauthRedirectHandler}
 										bind:webSearchEnabled
@@ -4539,6 +4566,7 @@
 										forkHandler={handleForkChat}
 										{toolApprovalMode}
 										onToolApprovalModeChange={handleToolApprovalModeChange}
+										onThinkingModeChange={handleThinkingModeChange}
 										{generating}
 										{stopResponse}
 										{createMessagePair}
@@ -4584,11 +4612,13 @@
 									bind:imageGenerationEnabled
 									bind:codeInterpreterEnabled
 									bind:webSearchEnabled
+									{thinkingMode}
 									bind:atSelectedModel
 									bind:showCommands
 									bind:dragged
 									{toolApprovalMode}
 									onToolApprovalModeChange={handleToolApprovalModeChange}
+									onThinkingModeChange={handleThinkingModeChange}
 									{pendingOAuthTools}
 									{oauthRedirectHandler}
 									{stopResponse}

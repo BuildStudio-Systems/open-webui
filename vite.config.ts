@@ -4,6 +4,30 @@ import { defineConfig } from 'vite';
 import { viteStaticCopy } from 'vite-plugin-static-copy';
 
 const backendTarget = process.env.WEBUI_BACKEND_URL || 'http://localhost:8080';
+const backendProxy = {
+	'/api': {
+		target: backendTarget,
+		changeOrigin: true,
+		ws: true
+	},
+	'/ollama': {
+		target: backendTarget,
+		changeOrigin: true
+	},
+	'/openai': {
+		target: backendTarget,
+		changeOrigin: true
+	},
+	'/oauth': {
+		target: backendTarget,
+		changeOrigin: true
+	},
+	'/ws': {
+		target: backendTarget,
+		changeOrigin: true,
+		ws: true
+	}
+};
 
 export default defineConfig({
 	plugins: [
@@ -26,30 +50,10 @@ export default defineConfig({
 		sourcemap: true
 	},
 	server: {
-		proxy: {
-			'/api': {
-				target: backendTarget,
-				changeOrigin: true,
-				ws: true
-			},
-			'/ollama': {
-				target: backendTarget,
-				changeOrigin: true
-			},
-			'/openai': {
-				target: backendTarget,
-				changeOrigin: true
-			},
-			'/oauth': {
-				target: backendTarget,
-				changeOrigin: true
-			},
-			'/ws': {
-				target: backendTarget,
-				changeOrigin: true,
-				ws: true
-			}
-		}
+		proxy: backendProxy
+	},
+	preview: {
+		proxy: backendProxy
 	},
 	worker: {
 		format: 'es'

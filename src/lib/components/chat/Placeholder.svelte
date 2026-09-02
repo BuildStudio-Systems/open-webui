@@ -19,6 +19,7 @@
 	import MessageInput from './MessageInput.svelte';
 	import FolderPlaceholder from './Placeholder/FolderPlaceholder.svelte';
 	import FolderTitle from './Placeholder/FolderTitle.svelte';
+	import type { ThinkingMode } from '$lib/utils/thinking';
 
 	const i18n = getContext('i18n');
 
@@ -46,6 +47,8 @@
 	export let imageGenerationEnabled = false;
 	export let codeInterpreterEnabled = false;
 	export let webSearchEnabled = false;
+	export let thinkingMode: ThinkingMode = 'off';
+	export let onThinkingModeChange: (mode: ThinkingMode) => void | Promise<void> = () => {};
 	export let toolApprovalMode = 'full';
 	export let onToolApprovalModeChange: Function = () => {};
 	export let oauthRedirectHandler: Function = () => {};
@@ -160,6 +163,7 @@
 						bind:imageGenerationEnabled
 						bind:codeInterpreterEnabled
 						bind:webSearchEnabled
+						bind:thinkingMode
 						bind:atSelectedModel
 						bind:showCommands
 						bind:dragged
@@ -167,6 +171,7 @@
 						{oauthRedirectHandler}
 						{toolApprovalMode}
 						{onToolApprovalModeChange}
+						{onThinkingModeChange}
 						{stopResponse}
 						{createMessagePair}
 						placeholder="Ask There anything..."

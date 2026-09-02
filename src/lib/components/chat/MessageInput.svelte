@@ -112,6 +112,8 @@
 	import Expand from '../icons/Expand.svelte';
 	import QueuedMessageItem from './MessageInput/QueuedMessageItem.svelte';
 	import TaskList from './Messages/ResponseMessage/TaskList.svelte';
+	import ThinkingSelector from './MessageInput/ThinkingSelector.svelte';
+	import { modelSupportsThinking, type ThinkingMode } from '$lib/utils/thinking';
 
 	const i18n = getContext('i18n');
 
@@ -188,6 +190,8 @@
 	export let imageGenerationEnabled = false;
 	export let webSearchEnabled = false;
 	export let codeInterpreterEnabled = false;
+	export let thinkingMode: ThinkingMode = 'off';
+	export let onThinkingModeChange: (mode: ThinkingMode) => void | Promise<void> = () => {};
 	export let toolApprovalMode = 'full';
 	export let onToolApprovalModeChange: Function = () => {};
 
@@ -200,6 +204,12 @@
 	export let oauthRedirectHandler: Function = () => {};
 
 	let showTerminalMenu = false;
+	$: thinkingModeAvailable =
+		selectedModelIds.length > 0 &&
+		selectedModelIds.every((modelId) =>
+			modelSupportsThinking($models.find((model) => model.id === modelId))
+		) &&
+		($_user?.role === 'admin' || ($_user?.permissions?.chat?.params ?? true));
 
 	export let messageQueue: { id: string; prompt: string; files: any[] }[] = [];
 	export let onQueueSendNow: (id: string) => void = () => {};
@@ -244,6 +254,7 @@
 		imageGenerationEnabled,
 		webSearchEnabled,
 		codeInterpreterEnabled,
+		thinkingMode,
 		toolApprovalMode
 	};
 
@@ -2250,10 +2261,10 @@
 										</button>
 									</InputMenu>
 
-									{#if showWebSearchButton || showImageGenerationButton || showCodeInterpreterButton || showToolsButton || showSkillsButton || (toggleFilters && toggleFilters.length > 0)}
+									{#if thinkingModeAvailable || showWebSearchButton || showImageGenerationButton || showCodeInterpreterButton || showToolsButton || showSkillsButton || (toggleFilters && toggleFilters.length > 0)}
 										<div
 											class="flex self-center w-[0.0625rem] h-4 mx-1 bg-gray-200/50 dark:bg-gray-800/50 shrink-0"
-										/>
+										></div>
 									{/if}
 
 									<div class="flex flex-1 items-center min-w-0 overflow-x-auto scrollbar-none">
@@ -2300,6 +2311,19 @@
 													<Component className="size-4.5" strokeWidth="1.5" />
 												</button>
 											</IntegrationsMenu>
+										{/if}
+
+										{#if thinkingModeAvailable}
+											<div class="ml-1 flex shrink-0">
+												<ThinkingSelector
+													mode={thinkingMode}
+													disabled={generating}
+													onChange={async (mode) => {
+														thinkingMode = mode;
+														await onThinkingModeChange(mode);
+													}}
+												/>
+											</div>
 										{/if}
 
 										{#if selectedModelIds.length === 1 && $models.find((m) => m.id === selectedModelIds[0])?.has_user_valves}

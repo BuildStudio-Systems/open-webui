@@ -119,6 +119,6 @@ def search_azure(
             for result in search_results
         ]
 
-    except Exception as ex:
-        log.error(f'Azure AI Search error: {ex}')
-        raise ex
+    except Exception:
+        log.error('Azure AI Search failed')
+        raise

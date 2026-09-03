@@ -96,9 +96,8 @@ def request_firecrawl_json(
             if response.status_code in FIRECRAWL_RETRY_STATUS_CODES and attempt < FIRECRAWL_MAX_RETRIES:
                 delay = get_firecrawl_retry_delay(response.headers, attempt)
                 log.warning(
-                    'Firecrawl %s %s returned HTTP %s; retrying in %.1fs',
+                    'Firecrawl %s returned HTTP %s; retrying in %.1fs',
                     method,
-                    url,
                     response.status_code,
                     delay,
                 )
@@ -113,13 +112,13 @@ def request_firecrawl_json(
                 break
 
             delay = get_firecrawl_retry_delay(None, attempt)
-            log.warning('Firecrawl %s %s failed; retrying in %.1fs: %s', method, url, delay, e)
+            log.warning('Firecrawl %s failed; retrying in %.1fs', method, delay)
             time.sleep(delay)
 
     if last_error:
         raise last_error
 
-    raise RuntimeError(f'Firecrawl {method} {url} failed without a response')
+    raise RuntimeError(f'Firecrawl {method} failed without a response')
 
 
 def get_firecrawl_result_url(result: dict[str, Any]) -> str:
@@ -225,8 +224,8 @@ def search_firecrawl(
                 )
             )
 
-        log.info('FireCrawl search results: %s', search_results)
+        log.info('Firecrawl search returned %s results', len(search_results))
         return search_results
-    except Exception as e:
-        log.error(f'Error in FireCrawl search: {e}')
+    except Exception:
+        log.error('Firecrawl search failed')
         return []

@@ -1,7 +1,6 @@
 import argparse
 import logging
 import os
-from pprint import pprint
 from typing import Optional
 
 import requests
@@ -40,9 +39,9 @@ def search_bing(
             )
             for result in results
         ]
-    except Exception as ex:
-        log.error(f'Error: {ex}')
-        raise ex
+    except Exception:
+        log.error('Bing search failed')
+        raise
 
 
 def main():
@@ -72,4 +71,4 @@ def main():
         args.count,
         args.filter,
     )
-    pprint(results)
+    log.info('Bing command-line search returned %s results', len(results))

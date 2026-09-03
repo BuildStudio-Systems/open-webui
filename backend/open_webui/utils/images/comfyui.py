@@ -17,7 +17,7 @@ default_headers = {'User-Agent': 'Mozilla/5.0'}
 async def queue_prompt(prompt, client_id, base_url, api_key):
     log.info('queue_prompt')
     p = {'prompt': prompt, 'client_id': client_id}
-    log.debug('queue_prompt data: %s', p)
+    log.debug('queue_prompt request prepared')
     try:
         session = await get_session()
         async with session.post(

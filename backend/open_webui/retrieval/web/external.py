@@ -53,8 +53,8 @@ def search_external(
             )
             for result in results[:count]
         ]
-        log.info('External search results: %s', results)
+        log.info('External search returned %s results', len(results))
         return results
-    except Exception as e:
-        log.error(f'Error in External search: {e}')
+    except Exception:
+        log.error('External search failed')
         return []

@@ -31,7 +31,7 @@ def search_exa(
         count (int): Number of results to return
         filter_list (Optional[list[str]]): List of domains to filter results by
     """
-    log.info('Searching with Exa for query: %s', query)
+    log.info('Starting Exa search')
 
     headers = {'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'}
 
@@ -67,6 +67,6 @@ def search_exa(
             )
             for result in results
         ]
-    except Exception as e:
-        log.error(f'Error searching Exa: {e}')
+    except Exception:
+        log.error('Exa search failed')
         return []

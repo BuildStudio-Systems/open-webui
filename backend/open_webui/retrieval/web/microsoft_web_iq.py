@@ -53,6 +53,6 @@ def search_microsoft_web_iq(
             )
             for result in results
         ]
-    except Exception as e:
-        log.error(f'Error searching with Microsoft Web IQ API: {e}')
+    except Exception:
+        log.error('Microsoft Web IQ search failed')
         return []

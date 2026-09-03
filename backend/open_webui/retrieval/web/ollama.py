@@ -23,7 +23,7 @@ def search_ollama_cloud(
         count (int): Number of results to return
         filter_list (Optional[list[str]]): List of domains to filter results by
     """
-    log.info('Searching with Ollama for query: %s', query)
+    log.info('Starting Ollama web search')
 
     headers = {'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'}
     payload = {'query': query, 'max_results': count}
@@ -47,6 +47,6 @@ def search_ollama_cloud(
             )
             for result in results
         ]
-    except Exception as e:
-        log.error(f'Error searching Ollama: {e}')
+    except Exception:
+        log.error('Ollama web search failed')
         return []

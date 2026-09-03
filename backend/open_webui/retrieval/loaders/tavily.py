@@ -73,7 +73,7 @@ class TavilyLoader(BaseLoader):
                     url = result.get('url', '')
                     content = result.get('raw_content', '')
                     if not content:
-                        log.warning(f'No content extracted from {url}')
+                        log.warning('Tavily returned a result without page content')
                         continue
                     # Add URLs as metadata
                     metadata = {'source': url}
@@ -83,10 +83,12 @@ class TavilyLoader(BaseLoader):
                     )
                 for failed in response_data.get('failed_results', []):
                     url = failed.get('url', '')
-                    error = failed.get('error', 'Unknown error')
-                    log.error(f'Failed to extract content from {url}: {error}')
-            except Exception as e:
+                    log.error('Tavily failed to extract one submitted page')
+            except Exception:
                 if self.continue_on_failure:
-                    log.error(f'Error extracting content from batch {batch_urls}: {e}')
+                    log.error(
+                        'Tavily page extraction batch failed (count=%s)',
+                        len(batch_urls),
+                    )
                 else:
-                    raise e
+                    raise

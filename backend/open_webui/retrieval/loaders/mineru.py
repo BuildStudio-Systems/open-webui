@@ -98,7 +98,7 @@ class MinerULoader:
                 files = {'files': (filename, f, 'application/octet-stream')}
 
                 log.info('Sending file to MinerU Local API: %s', filename)
-                log.debug('Local API parameters: %s', form_data)
+                log.debug('Local document-conversion request prepared')
 
                 response = requests.post(
                     f'{self.api_url}/file_parse',

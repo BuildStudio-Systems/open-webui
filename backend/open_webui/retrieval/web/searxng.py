@@ -64,7 +64,7 @@ async def search_searxng(
         'image_proxy': 0,
     }
 
-    log.debug('searching %s', query_url)
+    log.debug('Starting SearXNG search')
 
     session = await get_session()
     async with session.get(

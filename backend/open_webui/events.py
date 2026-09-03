@@ -21,6 +21,22 @@ EVENT_WEBHOOKS_CONFIG_KEY = 'events.webhooks'
 LEGACY_WEBHOOK_CONFIG_KEY = 'webhook_url'
 DEFAULT_WEBHOOK_ID = 'default'
 
+_SAFE_PROVIDER_NAMES = frozenset({'openai-compatible', 'ollama'})
+_SAFE_UPSTREAM_ERROR_CODES = frozenset(
+    {
+        'authentication_error',
+        'content_filter',
+        'context_length_exceeded',
+        'invalid_api_key',
+        'invalid_model',
+        'invalid_request_error',
+        'model_not_found',
+        'permission_denied',
+        'rate_limit_exceeded',
+        'server_error',
+    }
+)
+
 
 class EventDefinition(BaseModel):
     model_config = ConfigDict(frozen=True)
@@ -847,7 +863,7 @@ async def get_event_webhooks() -> list[dict[str, Any]]:
         try:
             normalized.append(normalize_event_webhook(webhook))
         except ValueError:
-            log.exception('Invalid event webhook config skipped')
+            log.warning('Invalid event webhook config skipped')
     return normalized
 
 
@@ -1056,14 +1072,14 @@ async def dispatch_webhook_event(app: Any, event: Event) -> None:
                 description=definition.description if definition else None,
             )
         except Exception:
-            log.exception('Event webhook failed for %s', webhook.get('id'))
+            log.warning('Event webhook delivery failed')
 
 
 def schedule_webhook_dispatch(app: Any, event: Event) -> None:
     try:
         asyncio.create_task(dispatch_webhook_event(app, event))
     except RuntimeError:
-        log.exception('Event webhook delivery could not be scheduled for %s', event.event)
+        log.warning('Event webhook delivery could not be scheduled')
 
 
 class WebhookEventSink:
@@ -1077,7 +1093,7 @@ def schedule_notification_dispatch(app: Any, event: Event) -> None:
 
         asyncio.create_task(dispatch_notification_event(app, event))
     except RuntimeError:
-        log.exception('Notification delivery could not be scheduled for %s', event.event)
+        log.warning('Notification delivery could not be scheduled')
 
 
 class NotificationEventSink:
@@ -1121,7 +1137,7 @@ async def dispatch_event_functions(
                 function for function in extra_functions if function.type == 'event' and function.id not in existing_ids
             )
     except Exception:
-        log.exception('Event functions could not be loaded for %s', event.event)
+        log.warning('Event functions could not be loaded')
         return
 
     for function in event_functions:
@@ -1153,14 +1169,14 @@ async def dispatch_event_functions(
             else:
                 handler(**params)
         except Exception:
-            log.exception('Event function failed for %s', function.id)
+            log.warning('Event function failed')
 
 
 def schedule_event_function_dispatch(app: Any, event: Event, request: Any | None = None) -> None:
     try:
         asyncio.create_task(dispatch_event_functions(app, event, request))
     except RuntimeError:
-        log.exception('Event functions could not be scheduled for %s', event.event)
+        log.warning('Event functions could not be scheduled')
 
 
 class EventFunctionSink:
@@ -1199,7 +1215,7 @@ async def publish_event(
         try:
             await sink.handle_event(app, event_payload, request=request)
         except Exception:
-            log.exception('Event sink failed for %s', event_payload.event)
+            log.warning('Event sink failed')
 
 
 async def publish_model_provider_request_failed(
@@ -1213,14 +1229,20 @@ async def publish_model_provider_request_failed(
     api_key: str | None = None,
     upstream_error: Any = None,
 ) -> None:
+    # Provider failures can contain the submitted prompt, signed URLs, bearer
+    # tokens, or other credentials. Use the body only to derive a bounded
+    # category, then emit fixed metadata. Keep the existing call signature so
+    # callers do not need to copy credentials into a separate error path.
     error = upstream_error.get('error') if isinstance(upstream_error, dict) else upstream_error
-    error_code = None
+    raw_error_code = None
     if isinstance(error, dict):
-        error_code = error.get('code') or error.get('type') or error.get('error_code')
+        raw_error_code = (
+            error.get('code') or error.get('type') or error.get('error_code')
+        )
         error = error.get('message') or error.get('detail') or error
 
     error_text = str(error or '')
-    marker = f'{error_code or ""} {error_text}'.lower()
+    marker = f'{raw_error_code or ""} {error_text}'.lower()
     error_type = (
         'model_not_found'
         if status == 404
@@ -1233,41 +1255,37 @@ async def publish_model_provider_request_failed(
         if status >= 500
         else 'upstream_error'
     )
+    safe_error_code = None
+    if isinstance(raw_error_code, int) and -999_999 <= raw_error_code <= 999_999:
+        safe_error_code = str(raw_error_code)
+    elif isinstance(raw_error_code, str):
+        normalized_code = raw_error_code.strip().lower()
+        if normalized_code in _SAFE_UPSTREAM_ERROR_CODES:
+            safe_error_code = normalized_code
+    safe_provider = provider if provider in _SAFE_PROVIDER_NAMES else 'unknown'
 
-    # Server-log only; the upstream error body is otherwise invisible to admins
-    # (event sinks require an event function or webhook to be configured).
     log.log(
         logging.ERROR if status >= 500 else logging.WARNING,
-        'Upstream %s request failed: HTTP %d (%s) url=%s model=%s code=%s message=%s',
-        provider,
+        'Upstream provider request failed: provider=%s status=%d error_type=%s code=%s',
+        safe_provider,
         status,
         error_type,
-        base_url,
-        requested_model or '-',
-        error_code or '-',
-        error_text[:MAX_STRING_LENGTH] or '-',
+        safe_error_code or '-',
     )
 
     data = {
         'error_type': error_type,
         'status': status,
-        'provider': provider,
-        'base_url': base_url,
+        'provider': safe_provider,
     }
-    if requested_model:
-        data['requested_model'] = requested_model
-    if api_key:
-        data['api_key_suffix'] = f'...{api_key[-4:]}'
-    if error_code:
-        data['upstream_error_code'] = error_code
-    if error:
-        data['upstream_message'] = error
+    if safe_error_code:
+        data['upstream_error_code'] = safe_error_code
 
     await publish_event(
         request_or_app,
         EVENTS.MODEL_PROVIDER_REQUEST_FAILED,
         actor=actor,
-        subject_id=requested_model,
+        subject_id=None,
         subject_type='model',
         data=data,
     )

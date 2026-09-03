@@ -1345,7 +1345,9 @@ async def get_sources_from_items(
     full_context=False,
     user: UserModel | None = None,
 ):
-    log.debug('items: %s %s %s %s %s', items, queries, embedding_function, reranking_function, full_context)
+    # Items and queries can contain private user text or retrieved document
+    # bodies. Log only non-content execution shape.
+    log.debug('retrieval request: full_context=%s', bool(full_context))
 
     bypass_embedding_and_retrieval = await Config.get('rag.bypass_embedding_and_retrieval')
     extracted_collections = []

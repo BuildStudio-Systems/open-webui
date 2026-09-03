@@ -112,11 +112,11 @@ def search_yandex(
             for result in results[:count]
         ]
 
-        log.info('Yandex search results: %s', results)
+        log.info('Yandex search returned %s results', len(results))
 
         return results
-    except Exception as e:
-        log.error(f'Error in search: {e}')
+    except Exception:
+        log.error('Yandex search failed')
 
         return []
 
@@ -149,4 +149,4 @@ if __name__ == '__main__':
         3,
     )
 
-    print(result)
+    log.info('Yandex command-line search returned %s results', len(result))

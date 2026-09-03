@@ -95,6 +95,6 @@ def search_perplexity(
             for result in results[:count]
         ]
 
-    except Exception as e:
-        log.error(f'Error searching with Perplexity API: {e}')
+    except Exception:
+        log.error('Perplexity search failed')
         return []

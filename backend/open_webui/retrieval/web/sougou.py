@@ -46,6 +46,6 @@ def search_sougou(
             )
             for result in sorted_results[:count]
         ]
-    except TencentCloudSDKException as err:
-        log.error(f'Error in Sougou search: {err}')
+    except TencentCloudSDKException:
+        log.error('Sougou search failed')
         return []

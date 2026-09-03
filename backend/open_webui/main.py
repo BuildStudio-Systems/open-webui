@@ -242,7 +242,7 @@ from open_webui.utils.middleware import (
     process_chat_payload,
     process_chat_response,
 )
-from open_webui.utils.misc import get_response_error_detail, merge_model_params
+from open_webui.utils.misc import merge_model_params
 from open_webui.utils.model_ids import strip_provider_model_prefix
 from open_webui.utils.models import (
     check_model_access,
@@ -415,8 +415,8 @@ async def lifespan(app: FastAPI):
                 ),
                 None,
             )
-        except Exception as e:
-            log.warning(f'Failed to pre-fetch models at startup: {e}')
+        except Exception:
+            log.warning('Failed to pre-fetch models at startup')
 
     # Pre-fetch tool server specs so the first request doesn't pay the latency cost
     if len(await Config.get('tool_server.connections', []) or []) > 0:
@@ -440,14 +440,14 @@ async def lifespan(app: FastAPI):
         try:
             await set_tool_servers(mock_request)
             log.info('Initialized %s tool server(s)', len(app.state.TOOL_SERVERS))
-        except Exception as e:
-            log.warning(f'Failed to initialize tool servers at startup: {e}')
+        except Exception:
+            log.warning('Failed to initialize tool servers at startup')
 
         try:
             await set_terminal_servers(mock_request)
             log.info('Initialized %s terminal server(s)', len(app.state.TERMINAL_SERVERS))
-        except Exception as e:
-            log.warning(f'Failed to initialize terminal servers at startup: {e}')
+        except Exception:
+            log.warning('Failed to initialize terminal servers at startup')
 
     # Mark application as ready to accept traffic from a startup perspective.
     if license_task:
@@ -455,8 +455,8 @@ async def lifespan(app: FastAPI):
             await asyncio.wait_for(asyncio.shield(license_task), timeout=2)
         except asyncio.TimeoutError:
             log.warning('License data retrieval is still pending; continuing startup without it')
-        except Exception as e:
-            log.warning(f'License data retrieval failed during startup: {e}')
+        except Exception:
+            log.warning('License data retrieval failed during startup')
 
     app.state.startup_complete = True
     await publish_event(app, EVENTS.SYSTEM_STARTUP_COMPLETED, source='system')
@@ -628,11 +628,9 @@ async def initialize_runtime_config(app: FastAPI):
                         'Stored OAuth client data is invalid; reconnect this tool server.',
                         server_id,
                     )
-                except Exception as e:
+                except Exception:
                     log.error(
-                        'Error adding OAuth client for MCP tool server %s: %s',
-                        server_id,
-                        f'{type(e).__name__}: {e}' if str(e) else type(e).__name__,
+                        'Error adding OAuth client for MCP tool server',
                     )
 
     arena_models = await Config.get('evaluation.arena.models', []) or []
@@ -670,8 +668,8 @@ async def initialize_runtime_config(app: FastAPI):
             )
         else:
             app.state.rf = None
-    except Exception as e:
-        log.error(f'Error updating models: {e}')
+    except Exception:
+        log.error('Model list update failed')
         app.state.rf = None
 
     rag_config = await Config.get_many(
@@ -774,8 +772,8 @@ app.state.MODELS = MODELS
 # Add the middleware to the app
 try:
     audit_level = AuditLevel(AUDIT_LOG_LEVEL)
-except ValueError as e:
-    logger.error(f'Invalid audit level: {AUDIT_LOG_LEVEL}. Error: {e}')
+except ValueError:
+    logger.error('Invalid audit log level; audit logging disabled')
     audit_level = AuditLevel.NONE
 
 # Added before CompressMiddleware so audit sits inside compression and
@@ -985,15 +983,15 @@ async def unload_model(request: Request, form_data: ModelUnloadForm, user=Depend
                         headers=headers,
                     ) as r:
                         if not r.ok:
-                            errors.append({'url_idx': idx, 'error': await r.text()})
-            except Exception as e:
-                log.exception(f'Failed to unload model on Ollama node {idx}: {e}')
-                errors.append({'url_idx': idx, 'error': str(e)})
+                            errors.append({'url_idx': idx, 'status': r.status})
+            except Exception:
+                log.error('Failed to unload model on Ollama node')
+                errors.append({'url_idx': idx, 'error_type': 'connection_error'})
 
         if errors:
             raise HTTPException(
                 status_code=500,
-                detail=f'Failed to unload model on {len(errors)} node(s): {errors}',
+                detail=f'Failed to unload model on {len(errors)} node(s)',
             )
         return {'status': True}
 
@@ -1026,14 +1024,23 @@ async def unload_model(request: Request, form_data: ModelUnloadForm, user=Depend
                         headers=headers,
                     ) as r:
                         if not r.ok:
-                            detail = await r.text()
-                            raise HTTPException(status_code=r.status, detail=detail)
+                            log.warning(
+                                'llama.cpp model unload failed: status=%d',
+                                r.status,
+                            )
+                            raise HTTPException(
+                                status_code=r.status,
+                                detail='Provider request failed',
+                            )
                         return await r.json()
             except HTTPException:
                 raise
-            except Exception as e:
-                log.exception(f'Failed to unload model via llama.cpp: {e}')
-                raise HTTPException(status_code=500, detail=str(e))
+            except Exception as error:
+                log.error('Failed to unload model via llama.cpp')
+                raise HTTPException(
+                    status_code=500,
+                    detail='Provider request failed',
+                ) from error
         else:
             raise HTTPException(
                 status_code=400,
@@ -1443,8 +1450,8 @@ async def chat_completion(
                                 ],
                                 user.id,
                             )
-                        except Exception as e:
-                            log.debug('Error inserting chat files: %s', e)
+                        except Exception:
+                            log.debug('Chat file association failed')
                             pass
 
                     if initial_title_generation is not None and all_assistant_ids:
@@ -1465,8 +1472,8 @@ async def chat_completion(
                         async def run_initial_title_generation():
                             try:
                                 await background_tasks_handler(title_ctx)
-                            except Exception as e:
-                                log.debug('Error generating initial chat title: %s', e)
+                            except Exception:
+                                log.debug('Initial chat title generation failed')
 
                         asyncio.create_task(run_initial_title_generation())
                 else:
@@ -1523,7 +1530,7 @@ async def chat_completion(
 
                                 await cancel_timers_for_chat(chat_id, 'chat.user_message', user.id)
                             except Exception:
-                                log.exception('Failed to cancel chat.user_message timers for chat %s', chat_id)
+                                log.warning('Failed to cancel chat user-message timers')
 
                         # Link grandparent → user message (childrenIds)
                         grandparent_id = user_message.get('parentId')
@@ -1551,8 +1558,8 @@ async def chat_completion(
                                 ],
                                 user.id,
                             )
-                        except Exception as e:
-                            log.debug('Error inserting chat files: %s', e)
+                        except Exception:
+                            log.debug('Chat file association failed')
                             pass
 
                     # Save ALL assistant placeholders
@@ -1616,12 +1623,12 @@ async def chat_completion(
 
     except HTTPException:
         raise
-    except Exception as e:
-        log.warning(f'Error processing chat metadata: {e}')
+    except Exception:
+        log.warning('Chat metadata processing failed')
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
-        )
+            detail=ERROR_MESSAGES.SERVER_CONNECTION_ERROR,
+        ) from None
 
     async def process_chat(request, form_data, user, metadata, model, tasks=None):
         try:
@@ -1632,13 +1639,14 @@ async def chat_completion(
 
             response = await chat_completion_handler(request, form_data, user)
 
-            # When the upstream provider returns an error (e.g. HTTP 400
-            # content-filter, quota exceeded), generate_chat_completion
-            # returns a JSONResponse instead of raising.  Detect this and
-            # raise so the except-block below emits chat:message:error +
-            # chat:tasks:cancel, unblocking the frontend.
-            if isinstance(response, JSONResponse) and response.status_code >= 400:
-                raise Exception(get_response_error_detail(response))
+            # Providers may return JSON or plain-text error responses. Detect
+            # either shape before response processing so no raw upstream body
+            # reaches a chat event or direct API response.
+            if isinstance(response, Response) and response.status_code >= 400:
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail=ERROR_MESSAGES.SERVER_CONNECTION_ERROR,
+                )
 
             ctx = await build_chat_response_context(request, form_data, user, model, metadata, tasks, events)
 
@@ -1657,8 +1665,16 @@ async def chat_completion(
                 pass
             raise  # re-raise to ensure proper task cancellation handling
         except Exception as e:
-            error_detail = e.detail if isinstance(e, HTTPException) else str(e)
-            log.error('Error processing chat payload: %s', error_detail)
+            error_status = e.status_code if isinstance(e, HTTPException) else 500
+            error_type = (
+                'upstream_error' if isinstance(e, HTTPException) else 'processing_error'
+            )
+            safe_error_detail = ERROR_MESSAGES.SERVER_CONNECTION_ERROR
+            log.error(
+                'Chat processing failed: status=%d error_type=%s',
+                error_status,
+                error_type,
+            )
             if metadata.get('chat_id') and metadata.get('message_id'):
                 # Update the chat message with the error
                 try:
@@ -1668,7 +1684,7 @@ async def chat_completion(
                             metadata['message_id'],
                             {
                                 'parentId': metadata.get('user_message_id', None),
-                                'error': {'content': error_detail},
+                                'error': {'content': safe_error_detail},
                             },
                         )
 
@@ -1677,7 +1693,7 @@ async def chat_completion(
                         await event_emitter(
                             {
                                 'type': 'chat:message:error',
-                                'data': {'error': {'content': error_detail}},
+                                'data': {'error': {'content': safe_error_detail}},
                             }
                         )
                         await event_emitter(
@@ -1692,9 +1708,9 @@ async def chat_completion(
                 # a proper HTTP response; without this the function would
                 # return None which FastAPI serializes as null.  #23924
                 raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=error_detail,
-                )
+                    status_code=error_status,
+                    detail=safe_error_detail,
+                ) from None
         finally:
             # Clean up MCP clients.  Each client is isolated so one
             # failure doesn't skip the rest.
@@ -1715,10 +1731,10 @@ async def chat_completion(
                     for client in reversed(list(mcp_clients.values())):
                         try:
                             await client.disconnect()
-                        except BaseException as e:
-                            log.debug('Error disconnecting MCP client: %s', e)
-            except BaseException as e:
-                log.debug('Error cleaning up MCP clients: %s', e)
+                        except BaseException:
+                            log.debug('MCP client disconnect failed')
+            except BaseException:
+                log.debug('MCP client cleanup failed')
 
             # Deregister this task, then emit chat:active=false if no others remain
             try:
@@ -1772,7 +1788,7 @@ async def chat_completion(
                         },
                     )
             except Exception:
-                log.exception('Failed to process pending internal messages for chat %s', metadata.get('chat_id'))
+                log.warning('Failed to process pending internal chat messages')
 
     # Fan out: one task per model
     if metadata.get('session_id') and metadata.get('chat_id'):
@@ -1967,7 +1983,7 @@ async def passthrough_anthropic_messages(request: Request, form_data: dict, user
     except HTTPException:
         raise
     except Exception:
-        log.exception('Failed to passthrough Anthropic Messages request for model %s', requested_model)
+        log.warning('Anthropic Messages passthrough failed')
         raise HTTPException(status_code=502, detail=ERROR_MESSAGES.SERVER_CONNECTION_ERROR)
     finally:
         if not streaming:
@@ -2000,7 +2016,7 @@ async def generate_messages(
         input_tokens = await openai.count_anthropic_tokens(request, form_data, user)
     except Exception:
         # Counting must not turn a compatible generation request into an outage.
-        log.warning('Unable to count Anthropic input tokens for model %s', requested_model, exc_info=True)
+        log.warning('Unable to count Anthropic input tokens')
 
     model_id = requested_model
     model_info = await Models.get_model_by_id(model_id)
@@ -2075,11 +2091,11 @@ async def chat_completed(request: Request, form_data: dict, user=Depends(get_ver
             await _set_direct_model(request, model_item, user)
 
         return await chat_completed_handler(request, form_data, user)
-    except Exception as e:
+    except Exception:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
-        )
+            detail=ERROR_MESSAGES.SERVER_CONNECTION_ERROR,
+        ) from None
 
 
 @app.post('/api/chat/actions/{action_id}')
@@ -2093,11 +2109,11 @@ async def chat_action(request: Request, action_id: str, form_data: dict, user=De
             await _set_direct_model(request, model_item, user)
 
         return await chat_action_handler(request, action_id, form_data, user)
-    except Exception as e:
+    except Exception:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
-        )
+            detail=ERROR_MESSAGES.SERVER_CONNECTION_ERROR,
+        ) from None
 
 
 @app.post('/api/tasks/stop/{task_id}')
@@ -2213,8 +2229,8 @@ async def get_app_config(request: Request):
     if token:
         try:
             data = decode_token(token)
-        except Exception as e:
-            log.debug(e)
+        except Exception:
+            log.debug('Authentication token decoding failed')
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail='Invalid token',
@@ -2576,8 +2592,8 @@ async def get_app_latest_release_version(user=Depends(get_verified_user)):
                 latest_version = data['tag_name']
 
                 return {'current': VERSION, 'latest': latest_version[1:]}
-    except Exception as e:
-        log.debug(e)
+    except Exception:
+        log.debug('Release version lookup failed')
         return {'current': VERSION, 'latest': VERSION}
 
 
@@ -2606,8 +2622,8 @@ async def get_current_usage(user=Depends(get_verified_user)):
         }
     except HTTPException:
         raise
-    except Exception as e:
-        log.error(f'Error getting usage statistics: {e}')
+    except Exception:
+        log.error('Usage statistics retrieval failed')
         raise HTTPException(status_code=500, detail='Internal Server Error')
 
 
@@ -2706,11 +2722,9 @@ async def register_client(request, client_id: str) -> bool:
             client_id,
         )
         return False
-    except Exception as e:
+    except Exception:
         log.error(
-            'OAuth client re-registration failed for %s: %s',
-            client_id,
-            f'{type(e).__name__}: {e}' if str(e) else type(e).__name__,
+            'OAuth client re-registration failed',
         )
         return False
 
@@ -2724,8 +2738,8 @@ async def register_client(request, client_id: str) -> bool:
             },
         }
         await Config.upsert({'tool_server.connections': connections})
-    except Exception as e:
-        log.error(f'Failed to persist updated OAuth client info for tool server {client_id}: {e}')
+    except Exception:
+        log.error('Failed to persist updated tool-server OAuth client info')
         return False
 
     oauth_client_manager.remove_client(client_id)
@@ -2950,8 +2964,8 @@ async def readiness_check():
     # Check database connectivity
     try:
         await async_db_ping()
-    except Exception as e:
-        log.warning(f'Readiness check DB ping failed: {e!r}')
+    except Exception:
+        log.warning('Readiness check DB ping failed')
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail='Database not ready',
@@ -2964,8 +2978,8 @@ async def readiness_check():
             pong = await redis.ping()
             if pong is False:
                 raise Exception('Redis PING returned False')
-        except Exception as e:
-            log.warning(f'Readiness check Redis ping failed: {e!r}')
+        except Exception:
+            log.warning('Readiness check Redis ping failed')
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail='Redis not ready',

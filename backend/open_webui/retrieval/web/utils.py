@@ -104,7 +104,7 @@ def _embedded_ipv4(addr: ipaddress.IPv4Address | ipaddress.IPv6Address) -> list[
 
 def _assert_host_allowed(host: str | None) -> None:
     if WEB_FETCH_FILTER_LIST and not is_host_allowed(host, WEB_FETCH_FILTER_LIST):
-        log.warning(f'Blocked by filter list: {host}')
+        log.warning('Web fetch blocked by host filter')
         raise ValueError(ERROR_MESSAGES.INVALID_URL)
 
 
@@ -116,13 +116,13 @@ def _assert_addresses_allowed(addresses: Sequence[str]) -> None:
     # Block entries only: an allow entry names a host, so judging a resolved address against one
     # would reject every allow-listed host.
     if is_host_blocked([str(address) for address in candidates], WEB_FETCH_FILTER_LIST):
-        log.warning(f'Blocked by filter list: {", ".join(str(address) for address in candidates)}')
+        log.warning('Web fetch blocked by address filter')
         raise ValueError(ERROR_MESSAGES.INVALID_URL)
 
     if not ENABLE_LOCAL_WEB_FETCH:
         for address in candidates:
             if not address.is_global:
-                log.warning(f'Blocked non-global address: {address}')
+                log.warning('Web fetch blocked a non-global address')
                 raise ValueError(ERROR_MESSAGES.INVALID_URL)
 
 
@@ -136,14 +136,14 @@ def validate_url(url: Union[str, Sequence[str]]):
         # extracts 1.1.1.1 (public, passes filter) while requests connects
         # to 127.0.0.1 (internal). Same shape with tab/CR/LF.
         if any(ch in url for ch in ('\\', '\t', '\n', '\r')):
-            log.warning(f'Blocked URL with parser-confusing char: {url!r}')
+            log.warning('Web fetch blocked a malformed URL')
             raise ValueError(ERROR_MESSAGES.INVALID_URL)
 
         parsed_url = urllib.parse.urlparse(url)
 
         # Protocol validation - only allow http/https
         if parsed_url.scheme not in ['http', 'https']:
-            log.warning(f'Blocked non-HTTP(S) protocol: {parsed_url.scheme} in URL: {url}')
+            log.warning('Web fetch blocked a non-HTTP(S) URL')
             raise ValueError(ERROR_MESSAGES.INVALID_URL)
 
         # Match on the parsed hostname, not the full URL: a path component would
@@ -152,10 +152,10 @@ def validate_url(url: Union[str, Sequence[str]]):
 
         try:
             ipv4_addresses, ipv6_addresses = resolve_hostname(parsed_url.hostname)
-        except (socket.gaierror, UnicodeError) as e:
+        except (socket.gaierror, UnicodeError):
             # With local fetch on, a proxied deployment can carry names only the proxy resolves.
             if not ENABLE_LOCAL_WEB_FETCH:
-                log.warning(f'Could not resolve host {parsed_url.hostname}: {e}')
+                log.warning('Web fetch host resolution failed')
                 raise ValueError(ERROR_MESSAGES.INVALID_URL) from None
             ipv4_addresses, ipv6_addresses = [], []
 
@@ -175,8 +175,8 @@ def safe_validate_urls(url: Sequence[str]) -> Sequence[str]:
         try:
             if validate_url(u):
                 valid_urls.append(u)
-        except Exception as e:
-            log.debug('Invalid URL %s: %s', u, e)
+        except Exception:
+            log.debug('Web fetch rejected an invalid URL')
             continue
     return valid_urls
 
@@ -345,8 +345,8 @@ def verify_ssl_cert(url: str) -> bool:
         return True
     except ssl.SSLError:
         return False
-    except Exception as e:
-        log.warning(f'SSL verification failed for {url}: {str(e)}')
+    except Exception:
+        log.warning('Web fetch SSL verification failed')
         return False
 
 
@@ -378,14 +378,14 @@ class URLProcessingMixin:
     async def _safe_process_url(self, url: str) -> bool:
         """Perform safety checks before processing a URL."""
         if self.verify_ssl and not await self._verify_ssl_cert(url):
-            raise ValueError(f'SSL certificate verification failed for {url}')
+            raise ValueError('SSL certificate verification failed')
         await self._wait_for_rate_limit()
         return True
 
     def _safe_process_url_sync(self, url: str) -> bool:
         """Synchronous version of safety checks."""
         if self.verify_ssl and not verify_ssl_cert(url):
-            raise ValueError(f'SSL certificate verification failed for {url}')
+            raise ValueError('SSL certificate verification failed')
         self._sync_wait_for_rate_limit()
         return True
 
@@ -440,9 +440,9 @@ class SafeFireCrawlLoader(BaseLoader, RateLimitMixin, URLProcessingMixin):
                 )
                 if doc is not None:
                     yield doc
-            except Exception as e:
+            except Exception:
                 if self.continue_on_failure:
-                    log.warning(f'Error extracting content from {url} with Firecrawl: {e}')
+                    log.warning('Firecrawl web content extraction failed')
                     continue
                 raise
 
@@ -461,9 +461,9 @@ class SafeFireCrawlLoader(BaseLoader, RateLimitMixin, URLProcessingMixin):
                 )
                 if doc is not None:
                     yield doc
-            except Exception as e:
+            except Exception:
                 if self.continue_on_failure:
-                    log.warning(f'Error extracting content from {url} with Firecrawl: {e}')
+                    log.warning('Firecrawl web content extraction failed')
                     continue
                 raise
 
@@ -523,10 +523,10 @@ class SafeTavilyLoader(BaseLoader, RateLimitMixin, URLProcessingMixin):
             try:
                 self._safe_process_url_sync(url)
                 valid_urls.append(url)
-            except Exception as e:
-                log.warning(f'SSL verification failed for {url}: {str(e)}')
+            except Exception:
+                log.warning('Tavily URL validation failed')
                 if not self.continue_on_failure:
-                    raise e
+                    raise
         if not valid_urls:
             if self.continue_on_failure:
                 log.warning('No valid URLs to process after SSL verification')
@@ -540,11 +540,11 @@ class SafeTavilyLoader(BaseLoader, RateLimitMixin, URLProcessingMixin):
                 continue_on_failure=self.continue_on_failure,
             )
             yield from loader.lazy_load()
-        except Exception as e:
+        except Exception:
             if self.continue_on_failure:
-                log.exception(f'Error extracting content from URLs: {e}')
+                log.warning('Tavily web content extraction failed')
             else:
-                raise e
+                raise
 
     async def alazy_load(self) -> AsyncIterator[Document]:
         """Async version with rate limiting and SSL verification."""
@@ -553,10 +553,10 @@ class SafeTavilyLoader(BaseLoader, RateLimitMixin, URLProcessingMixin):
             try:
                 await self._safe_process_url(url)
                 valid_urls.append(url)
-            except Exception as e:
-                log.warning(f'SSL verification failed for {url}: {str(e)}')
+            except Exception:
+                log.warning('Tavily URL validation failed')
                 if not self.continue_on_failure:
-                    raise e
+                    raise
 
         if not valid_urls:
             if self.continue_on_failure:
@@ -573,11 +573,11 @@ class SafeTavilyLoader(BaseLoader, RateLimitMixin, URLProcessingMixin):
             )
             async for document in loader.alazy_load():
                 yield document
-        except Exception as e:
+        except Exception:
             if self.continue_on_failure:
-                log.exception(f'Error loading URLs: {e}')
+                log.warning('Tavily web content loading failed')
             else:
-                raise e
+                raise
 
 
 class SafeMicrosoftWebIQLoader(BaseLoader, RateLimitMixin, URLProcessingMixin):
@@ -610,10 +610,10 @@ class SafeMicrosoftWebIQLoader(BaseLoader, RateLimitMixin, URLProcessingMixin):
             try:
                 self._safe_process_url_sync(url)
                 valid_urls.append(url)
-            except Exception as e:
-                log.warning(f'SSL verification failed for {url}: {str(e)}')
+            except Exception:
+                log.warning('Microsoft Web IQ URL validation failed')
                 if not self.continue_on_failure:
-                    raise e
+                    raise
         if not valid_urls:
             if self.continue_on_failure:
                 log.warning('No valid URLs to process after SSL verification')
@@ -636,11 +636,11 @@ class SafeMicrosoftWebIQLoader(BaseLoader, RateLimitMixin, URLProcessingMixin):
             docs = await run_in_threadpool(lambda: list(self.lazy_load()))
             for doc in docs:
                 yield doc
-        except Exception as e:
+        except Exception:
             if self.continue_on_failure:
-                log.warning(f'Error browsing URLs with Microsoft Web IQ: {e}')
+                log.warning('Microsoft Web IQ content loading failed')
             else:
-                raise e
+                raise
 
 
 class SafePlaywrightURLLoader(PlaywrightURLLoader, RateLimitMixin, URLProcessingMixin):
@@ -760,8 +760,8 @@ class SafePlaywrightURLLoader(PlaywrightURLLoader, RateLimitMixin, URLProcessing
                 else:
                     route.abort()
                     return
-        except Exception as e:
-            log.debug('Playwright loader could not fetch %s: %s', req.url, e)
+        except Exception:
+            log.debug('Playwright loader request failed')
             route.abort()
             return
 
@@ -815,8 +815,8 @@ class SafePlaywrightURLLoader(PlaywrightURLLoader, RateLimitMixin, URLProcessing
                 else:
                     await route.abort()
                     return
-        except Exception as e:
-            log.debug('Playwright loader could not fetch %s: %s', req.url, e)
+        except Exception:
+            log.debug('Playwright loader request failed')
             await route.abort()
             return
 
@@ -850,16 +850,16 @@ class SafePlaywrightURLLoader(PlaywrightURLLoader, RateLimitMixin, URLProcessing
                             page.route_web_socket('**/*', lambda ws_route: ws_route.close())
                             response = page.goto(url, timeout=self.playwright_timeout)
                             if response is None:
-                                raise ValueError(f'page.goto() returned None for url {url}')
+                                raise ValueError('page.goto() returned no response')
 
                             text = self.evaluator.evaluate(page, browser, response)
                             metadata = {'source': url}
                             yield Document(page_content=text, metadata=metadata)
-                    except Exception as e:
+                    except Exception:
                         if self.continue_on_failure:
-                            log.exception(f'Error loading {url}: {e}')
+                            log.warning('Playwright web content loading failed')
                             continue
-                        raise e
+                        raise
 
     async def alazy_load(self) -> AsyncIterator[Document]:
         """Safely load URLs asynchronously with support for remote browser."""
@@ -885,16 +885,16 @@ class SafePlaywrightURLLoader(PlaywrightURLLoader, RateLimitMixin, URLProcessing
                             await page.route_web_socket('**/*', lambda ws_route: ws_route.close())
                             response = await page.goto(url, timeout=self.playwright_timeout)
                             if response is None:
-                                raise ValueError(f'page.goto() returned None for url {url}')
+                                raise ValueError('page.goto() returned no response')
 
                             text = await self.evaluator.evaluate_async(page, browser, response)
                             metadata = {'source': url}
                             yield Document(page_content=text, metadata=metadata)
-                    except Exception as e:
+                    except Exception:
                         if self.continue_on_failure:
-                            log.exception(f'Error loading {url}: {e}')
+                            log.warning('Playwright web content loading failed')
                             continue
-                        raise e
+                        raise
 
 
 class SafeWebBaseLoader(WebBaseLoader):
@@ -955,11 +955,15 @@ class SafeWebBaseLoader(WebBaseLoader):
                         if self.raise_for_status:
                             response.raise_for_status()
                         return await response.text()
-                except aiohttp.ClientConnectionError as e:
+                except aiohttp.ClientConnectionError:
                     if i == retries - 1:
                         raise
                     else:
-                        log.warning(f'Error fetching {url} with attempt {i + 1}/{retries}: {e}. Retrying...')
+                        log.warning(
+                            'Web content fetch failed; retrying (attempt %s/%s)',
+                            i + 1,
+                            retries,
+                        )
                         await asyncio.sleep(cooldown * backoff**i)
         raise ValueError('retry count exceeded')
 
@@ -988,9 +992,9 @@ class SafeWebBaseLoader(WebBaseLoader):
                 metadata = extract_metadata(soup, path)
 
                 yield Document(page_content=text, metadata=metadata)
-            except Exception as e:
+            except Exception:
                 # Log the error and continue with the next URL
-                log.exception(f'Error loading {path}: {e}')
+                log.warning('Web content loading failed; continuing')
 
     def _document_from_html(self, html: str, url: str) -> Document:
         """Build one Document."""
@@ -1023,7 +1027,8 @@ def get_web_loader(
     safe_urls = safe_validate_urls([urls] if isinstance(urls, str) else urls)
 
     if not safe_urls:
-        log.warning(f'All provided URLs were blocked or invalid: {urls}')
+        submitted_count = 1 if isinstance(urls, str) else len(urls)
+        log.warning('All submitted web URLs were blocked or invalid (count=%s)', submitted_count)
         raise ValueError(ERROR_MESSAGES.INVALID_URL)
 
     loader_config = loader_config or {}

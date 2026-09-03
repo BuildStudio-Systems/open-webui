@@ -63,6 +63,6 @@ def search_perplexity_search(
             SearchResult(link=result['url'], title=result['title'], snippet=result['snippet']) for result in results
         ]
 
-    except Exception as e:
-        log.error(f'Error searching with Perplexity Search API: {e}')
+    except Exception:
+        log.error('Perplexity Search API request failed')
         return []

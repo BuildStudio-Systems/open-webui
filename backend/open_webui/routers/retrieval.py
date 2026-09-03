@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import io
 import logging
+import math
 import mimetypes
 import os
 import re
@@ -29,6 +30,7 @@ from fastapi import (
 )
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
+from langchain_community.retrievers import BM25Retriever
 from langchain_core.documents import Document
 from langchain_text_splitters import (
     MarkdownHeaderTextSplitter,
@@ -134,6 +136,131 @@ from sqlalchemy.ext.asyncio import AsyncSession
 log = logging.getLogger(__name__)
 
 TIKTOKEN_DISALLOWED_SPECIAL = ()
+NO_SECONDARY_PERSISTENCE_HEADER = 'x-buildstudio-no-store'
+NO_STORE_WEB_SEARCH_MAX_CHUNKS = 12
+NO_STORE_WEB_SEARCH_MAX_CHARACTERS = 16_000
+_NO_STORE_BM25_TOKEN_PATTERN = re.compile(
+    r'[a-z0-9]+|[^\W\d_]', re.IGNORECASE | re.UNICODE
+)
+
+
+def _request_bypasses_web_search_persistence(request: Request) -> bool:
+    """Return whether this one request must keep fetched pages out of the vector DB.
+
+    The Mini Program gateway supplies this header only for ordinary There-3.8
+    requests.  Browser requests do not carry it and continue to use the global
+    administrator setting below.
+    """
+    return request.headers.get(NO_SECONDARY_PERSISTENCE_HEADER, '').strip().lower() == 'true'
+
+
+def _no_store_bm25_tokens(text: str) -> list[str]:
+    """Tokenize Latin words and individual non-Latin letters without external services."""
+    return _NO_STORE_BM25_TOKEN_PATTERN.findall((text or '').casefold())
+
+
+def _select_no_store_web_search_docs(
+    request: Request,
+    docs: Sequence[Document],
+    queries: Sequence[str],
+    config: RetrievalConfig,
+) -> list[Document]:
+    """Bound inline web context using only in-memory splitting and lexical ranking."""
+    chunks = [
+        chunk
+        for chunk in split_docs_for_retrieval(request, docs, config)
+        if isinstance(chunk.page_content, str) and chunk.page_content.strip()
+    ]
+    if not chunks:
+        return []
+
+    try:
+        top_k = int(getattr(config, 'TOP_K', 3) or 3)
+    except (TypeError, ValueError):
+        top_k = 3
+    top_k = max(1, min(top_k, NO_STORE_WEB_SEARCH_MAX_CHUNKS))
+
+    tokenized_queries = [
+        tokens
+        for query in queries
+        if isinstance(query, str) and query.strip()
+        if (tokens := _no_store_bm25_tokens(query))
+    ]
+    if tokenized_queries:
+        chunk_token_sets = [set(_no_store_bm25_tokens(chunk.page_content)) for chunk in chunks]
+        reciprocal_rank_scores = [0.0] * len(chunks)
+        overlap_scores = [0] * len(chunks)
+
+        try:
+            retriever = BM25Retriever.from_documents(
+                chunks,
+                preprocess_func=_no_store_bm25_tokens,
+            )
+        except Exception:
+            retriever = None
+            log.warning('In-memory web search BM25 setup failed; using lexical ranking')
+
+        for query_tokens in tokenized_queries:
+            query_terms = set(query_tokens)
+            overlaps = [len(query_terms.intersection(tokens)) for tokens in chunk_token_sets]
+            raw_scores = (
+                retriever.vectorizer.get_scores(query_tokens)
+                if retriever is not None
+                else [0.0] * len(chunks)
+            )
+            bm25_scores = []
+            for score in raw_scores:
+                numeric_score = float(score)
+                bm25_scores.append(numeric_score if math.isfinite(numeric_score) else 0.0)
+
+            ranked_indices = sorted(
+                range(len(chunks)),
+                key=lambda index: (overlaps[index], bm25_scores[index], -index),
+                reverse=True,
+            )
+            for rank, index in enumerate(ranked_indices, start=1):
+                reciprocal_rank_scores[index] += 1.0 / (60 + rank)
+                overlap_scores[index] += overlaps[index]
+
+        ordered_indices = sorted(
+            range(len(chunks)),
+            key=lambda index: (
+                overlap_scores[index] > 0,
+                overlap_scores[index],
+                reciprocal_rank_scores[index],
+                -index,
+            ),
+            reverse=True,
+        )
+        chunks = [chunks[index] for index in ordered_indices]
+
+    selected: list[Document] = []
+    used_characters = 0
+    for chunk in chunks[:top_k]:
+        remaining = NO_STORE_WEB_SEARCH_MAX_CHARACTERS - used_characters
+        if remaining <= 0:
+            break
+
+        content = chunk.page_content.strip()
+        was_truncated = len(content) > remaining
+        if was_truncated:
+            content = content[:remaining].rstrip()
+        if not content:
+            break
+
+        metadata = {**chunk.metadata}
+        if was_truncated:
+            metadata['content_truncated'] = True
+        selected.append(Document(page_content=content, metadata=metadata))
+        used_characters += len(content)
+
+    log.debug(
+        'Prepared bounded in-memory web context (chunk_count=%s, character_count=%s)',
+        len(selected),
+        used_characters,
+    )
+    return selected
+
 
 ##########################################
 #
@@ -1634,6 +1761,73 @@ def get_splitter_length_function(
     return len
 
 
+def split_docs_for_retrieval(
+    request: Request,
+    docs: Sequence[Document],
+    config: RetrievalConfig,
+) -> list[Document]:
+    """Split documents using the same configured pipeline used before vector indexing."""
+    split_docs = list(docs)
+    if config.ENABLE_MARKDOWN_HEADER_TEXT_SPLITTER:
+        log.info('Using markdown header text splitter')
+        markdown_splitter = MarkdownHeaderTextSplitter(
+            headers_to_split_on=[
+                ('#', 'Header 1'),
+                ('##', 'Header 2'),
+                ('###', 'Header 3'),
+                ('####', 'Header 4'),
+                ('#####', 'Header 5'),
+                ('######', 'Header 6'),
+            ],
+            strip_headers=False,
+        )
+
+        markdown_docs = []
+        for doc in split_docs:
+            markdown_docs.extend(
+                [
+                    Document(
+                        page_content=split_chunk.page_content,
+                        metadata={**doc.metadata},
+                    )
+                    for split_chunk in markdown_splitter.split_text(doc.page_content)
+                ]
+            )
+
+        split_docs = markdown_docs
+        if config.CHUNK_MIN_SIZE_TARGET > 0:
+            split_docs = merge_docs_to_target_size(request, split_docs, config)
+
+    if config.TEXT_SPLITTER in ['', 'character']:
+        text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=config.CHUNK_SIZE,
+            chunk_overlap=config.CHUNK_OVERLAP,
+            add_start_index=True,
+        )
+        return text_splitter.split_documents(split_docs)
+    if config.TEXT_SPLITTER == 'token':
+        log.info('Using token text splitter: %s', config.TIKTOKEN_ENCODING_NAME)
+        tiktoken.get_encoding(str(config.TIKTOKEN_ENCODING_NAME))
+        text_splitter = TokenTextSplitter(
+            encoding_name=str(config.TIKTOKEN_ENCODING_NAME),
+            chunk_size=config.CHUNK_SIZE,
+            chunk_overlap=config.CHUNK_OVERLAP,
+            add_start_index=True,
+            disallowed_special=TIKTOKEN_DISALLOWED_SPECIAL,
+        )
+        return text_splitter.split_documents(split_docs)
+    if config.TEXT_SPLITTER == 'token_transformers':
+        log.info('Using transformers token text splitter')
+        text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=config.CHUNK_SIZE,
+            chunk_overlap=config.CHUNK_OVERLAP,
+            length_function=get_splitter_length_function(request, config),
+            add_start_index=True,
+        )
+        return text_splitter.split_documents(split_docs)
+    raise ValueError(ERROR_MESSAGES.DEFAULT('Invalid text splitter'))
+
+
 def save_docs_to_vector_db(
     request: Request,
     docs,
@@ -1685,68 +1879,7 @@ def save_docs_to_vector_db(
                     raise ValueError(ERROR_MESSAGES.DUPLICATE_CONTENT)
 
     if split:
-        if config.ENABLE_MARKDOWN_HEADER_TEXT_SPLITTER:
-            log.info('Using markdown header text splitter')
-            # Define headers to split on - covering most common markdown header levels
-            markdown_splitter = MarkdownHeaderTextSplitter(
-                headers_to_split_on=[
-                    ('#', 'Header 1'),
-                    ('##', 'Header 2'),
-                    ('###', 'Header 3'),
-                    ('####', 'Header 4'),
-                    ('#####', 'Header 5'),
-                    ('######', 'Header 6'),
-                ],
-                strip_headers=False,  # Keep headers in content for context
-            )
-
-            split_docs = []
-            for doc in docs:
-                split_docs.extend(
-                    [
-                        Document(
-                            page_content=split_chunk.page_content,
-                            metadata={**doc.metadata},
-                        )
-                        for split_chunk in markdown_splitter.split_text(doc.page_content)
-                    ]
-                )
-
-            docs = split_docs
-            if config.CHUNK_MIN_SIZE_TARGET > 0:
-                docs = merge_docs_to_target_size(request, docs, config)
-
-        if config.TEXT_SPLITTER in ['', 'character']:
-            text_splitter = RecursiveCharacterTextSplitter(
-                chunk_size=config.CHUNK_SIZE,
-                chunk_overlap=config.CHUNK_OVERLAP,
-                add_start_index=True,
-            )
-            docs = text_splitter.split_documents(docs)
-        elif config.TEXT_SPLITTER == 'token':
-            log.info('Using token text splitter: %s', config.TIKTOKEN_ENCODING_NAME)
-
-            tiktoken.get_encoding(str(config.TIKTOKEN_ENCODING_NAME))
-            text_splitter = TokenTextSplitter(
-                encoding_name=str(config.TIKTOKEN_ENCODING_NAME),
-                chunk_size=config.CHUNK_SIZE,
-                chunk_overlap=config.CHUNK_OVERLAP,
-                add_start_index=True,
-                disallowed_special=TIKTOKEN_DISALLOWED_SPECIAL,
-            )
-            docs = text_splitter.split_documents(docs)
-        elif config.TEXT_SPLITTER == 'token_transformers':
-            log.info('Using transformers token text splitter')
-
-            text_splitter = RecursiveCharacterTextSplitter(
-                chunk_size=config.CHUNK_SIZE,
-                chunk_overlap=config.CHUNK_OVERLAP,
-                length_function=get_splitter_length_function(request, config),
-                add_start_index=True,
-            )
-            docs = text_splitter.split_documents(docs)
-        else:
-            raise ValueError(ERROR_MESSAGES.DEFAULT('Invalid text splitter'))
+        docs = split_docs_for_retrieval(request, docs, config)
 
     if len(docs) == 0:
         raise ValueError(ERROR_MESSAGES.EMPTY_CONTENT)
@@ -2815,7 +2948,11 @@ async def process_web_search(request: Request, form_data: SearchForm, user=Depen
     result_items = []
 
     try:
-        logging.debug('trying to web search with %s', (config.WEB_SEARCH_ENGINE, form_data.queries))
+        logging.debug(
+            'trying web search: engine=%s query_count=%s',
+            config.WEB_SEARCH_ENGINE,
+            len(form_data.queries),
+        )
 
         # Use semaphore to limit concurrent requests based on WEB_SEARCH_CONCURRENT_REQUESTS
         # 0 or None = unlimited (previous behavior), positive number = limited concurrency
@@ -2858,10 +2995,10 @@ async def process_web_search(request: Request, form_data: SearchForm, user=Depen
                         urls.append(item.link)
 
         urls = list(dict.fromkeys(urls))
-        log.debug('urls: %s', urls)
+        log.debug('Web search returned %s unique result URLs', len(urls))
 
     except Exception as e:
-        log.exception('Web search failed')
+        log.warning('Web search failed')
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
             detail=ERROR_MESSAGES.DEFAULT(e, ERROR_MESSAGES.WEB_SEARCH_ERROR),
@@ -2909,7 +3046,17 @@ async def process_web_search(request: Request, form_data: SearchForm, user=Depen
             dict(item) for item in result_items if item.link in url_set
         ]  # only keep the search results that have been loaded
 
-        if config.BYPASS_WEB_SEARCH_EMBEDDING_AND_RETRIEVAL:
+        request_no_store = _request_bypasses_web_search_persistence(request)
+        if request_no_store:
+            docs = await asyncio.to_thread(
+                _select_no_store_web_search_docs,
+                request,
+                docs,
+                form_data.queries,
+                config,
+            )
+
+        if config.BYPASS_WEB_SEARCH_EMBEDDING_AND_RETRIEVAL or request_no_store:
             return {
                 'status': True,
                 'collection_name': None,
@@ -2939,9 +3086,9 @@ async def process_web_search(request: Request, form_data: SearchForm, user=Depen
                     overwrite=True,
                     user=user,
                 )
-            except Exception as e:
+            except Exception:
                 # Surface the failure instead of returning an unusable collection
-                log.exception(f'Error saving web search results to vector DB: {e}')
+                log.error('Web search vector persistence failed')
                 raise HTTPException(
                     status.HTTP_500_INTERNAL_SERVER_ERROR,
                     detail='Failed to embed and store the retrieved web pages. Check the embedding configuration in Admin Settings > Documents.',
@@ -2957,7 +3104,7 @@ async def process_web_search(request: Request, form_data: SearchForm, user=Depen
     except HTTPException:
         raise
     except Exception as e:
-        log.exception('Web search content loading failed')
+        log.warning('Web search content loading failed')
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
             detail=ERROR_MESSAGES.DEFAULT(e, ERROR_MESSAGES.WEB_SEARCH_ERROR),

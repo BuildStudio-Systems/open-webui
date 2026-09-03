@@ -417,8 +417,9 @@ async def generate_queries(request: Request, form_data: dict, user=Depends(get_v
             )
 
     if getattr(request.state, 'cached_queries', None):
-        log.info('Reusing cached queries: %s', request.state.cached_queries)
-        return request.state.cached_queries
+        cached_queries = request.state.cached_queries
+        log.info('Reusing cached search queries: count=%s', len(cached_queries))
+        return cached_queries
 
     if getattr(request.state, 'direct', False) and hasattr(request.state, 'model'):
         models = {

@@ -66,9 +66,9 @@ def search_linkup(
             for r in search_results
         ][:count]
 
-    except requests.exceptions.RequestException as e:
-        log.error(f'Linkup API request failed: {e}')
-        raise Exception(f'Linkup search failed: {str(e)}')
-    except Exception as e:
-        log.error(f'Error searching Linkup: {e}')
-        raise Exception(f'Linkup search error: {str(e)}')
+    except requests.exceptions.RequestException:
+        log.error('Linkup API request failed')
+        raise Exception('Linkup search failed') from None
+    except Exception:
+        log.error('Linkup search failed')
+        raise Exception('Linkup search failed') from None

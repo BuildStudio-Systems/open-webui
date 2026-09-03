@@ -730,7 +730,8 @@ async def create_model(
     if not await Config.get('ollama.enable'):
         raise HTTPException(status_code=503, detail=ERROR_MESSAGES.OLLAMA_API_DISABLED)
 
-    log.debug('form_data: %s', form_data)
+    # Model files and adapter parameters can contain private paths or tokens.
+    log.debug('Ollama model creation requested')
     url = (await Config.get('ollama.base_urls', []))[url_idx]
 
     return await send_request(
@@ -888,7 +889,7 @@ async def embed(
     if not await Config.get('ollama.enable'):
         raise HTTPException(status_code=503, detail=ERROR_MESSAGES.OLLAMA_API_DISABLED)
 
-    log.info('generate_ollama_batch_embeddings %s', form_data)
+    log.info('Ollama batch embedding requested')
     await check_model_access(user, await Models.get_model_by_id(form_data.model), BYPASS_MODEL_ACCESS_CONTROL)
     await validate_ollama_backend_idx(request, form_data.model, url_idx, user)
 
@@ -939,7 +940,7 @@ async def embeddings(
     if not await Config.get('ollama.enable'):
         raise HTTPException(status_code=503, detail=ERROR_MESSAGES.OLLAMA_API_DISABLED)
 
-    log.info('generate_ollama_embeddings %s', form_data)
+    log.info('Ollama embedding requested')
     await check_model_access(user, await Models.get_model_by_id(form_data.model), BYPASS_MODEL_ACCESS_CONTROL)
     await validate_ollama_backend_idx(request, form_data.model, url_idx, user)
 

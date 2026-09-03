@@ -47,8 +47,11 @@ class ExternalWebLoader(BaseLoader):
                         page_content=result.get('page_content', ''),
                         metadata=result.get('metadata', {}),
                     )
-            except Exception as e:
+            except Exception:
                 if self.continue_on_failure:
-                    log.error(f'Error extracting content from batch {urls}: {e}')
+                    log.error(
+                        'External page extraction batch failed (count=%s)',
+                        len(urls),
+                    )
                 else:
-                    raise e
+                    raise

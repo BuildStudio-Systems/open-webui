@@ -155,7 +155,9 @@ async def generate_chat_completion(
     bypass_filter: bool = False,
     bypass_system_prompt: bool = False,
 ):
-    log.debug('generate_chat_completion: %s', form_data)
+    # Request bodies contain customer prompts and may also carry internal
+    # system instructions. Keep diagnostics structural and content-free.
+    log.debug('generate_chat_completion: stream=%s', bool(form_data.get('stream')))
     if BYPASS_MODEL_ACCESS_CONTROL:
         bypass_filter = True
 

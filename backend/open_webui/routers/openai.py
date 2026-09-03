@@ -112,9 +112,9 @@ async def send_get_request(
                 ssl=AIOHTTP_CLIENT_SESSION_SSL,
             ) as response:
                 return await response.json(loads=JSONCodec.loads)
-    except Exception as e:
+    except Exception:
         # Handle connection error here
-        log.error(f'Connection error: {e}')
+        log.error('OpenAI-compatible connection failed')
         return None
 
 
@@ -201,8 +201,8 @@ async def get_headers_and_cookies(
                     user.id,
                     request.cookies.get('oauth_session_id', None),
                 )
-        except Exception as e:
-            log.error(f'Error getting OAuth token: {e}')
+        except Exception:
+            log.error('System OAuth token retrieval failed')
 
         if oauth_token:
             token = f'{oauth_token.get("access_token", "")}'
@@ -230,8 +230,8 @@ def get_microsoft_entra_id_access_token():
             DefaultAzureCredential(), 'https://cognitiveservices.azure.com/.default'
         )
         return token_provider()
-    except Exception as e:
-        log.error(f'Error getting Microsoft Entra ID access token: {e}')
+    except Exception:
+        log.error('Microsoft Entra ID access-token retrieval failed')
         return None
 
 
@@ -426,11 +426,14 @@ async def send_model_management_request(
         )
 
         if not response.ok:
-            try:
-                error = await response.json(loads=JSONCodec.loads)
-            except Exception:
-                error = await response.text()
-            raise HTTPException(status_code=response.status, detail=error)
+            log.warning(
+                'Model-management provider request failed: status=%d error_type=upstream_error',
+                response.status,
+            )
+            raise HTTPException(
+                status_code=response.status,
+                detail='Provider request failed',
+            )
 
         if stream:
             streaming = True
@@ -446,8 +449,16 @@ async def send_model_management_request(
             return {'success': True}
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(status_code=response.status if response else 500, detail=str(e))
+    except Exception as error:
+        upstream_status = response.status if response else 500
+        log.warning(
+            'Model-management provider request failed: status=%d error_type=connection_error',
+            upstream_status,
+        )
+        raise HTTPException(
+            status_code=upstream_status,
+            detail='Provider request failed',
+        ) from error
     finally:
         if not streaming:
             await cleanup_response(response)
@@ -537,7 +548,7 @@ async def count_anthropic_tokens(request: Request, form_data: dict, user: UserMo
     except HTTPException:
         raise
     except Exception:
-        log.exception('Failed to count Anthropic tokens for model %s', requested_model)
+        log.warning('Anthropic token counting failed')
         raise HTTPException(status_code=502, detail=ERROR_MESSAGES.SERVER_CONNECTION_ERROR)
     finally:
         await cleanup_response(response)
@@ -651,25 +662,15 @@ async def speech(request: Request, user=Depends(get_verified_user)):
             # Return the saved file
             return FileResponse(file_path)
 
-        except Exception as e:
-            log.exception(e)
-
-            detail = None
-            if r is not None:
-                try:
-                    res = await r.json(loads=JSONCodec.loads)
-                    if 'error' in res:
-                        detail = f'External: {res["error"]}'
-                except Exception:
-                    detail = f'External: {e}'
-
+        except Exception:
+            log.error('OpenAI-compatible speech request failed')
             # LICENSE covers this Open WebUI error identifier.
             # Do not alter, remove, obscure, or replace it except as LICENSE permits:
             # https://docs.openwebui.com/license.
             raise HTTPException(
                 status_code=r.status if r else 500,
-                detail=detail if detail else 'Open WebUI: Server Connection Error',
-            )
+                detail='Open WebUI: Server Connection Error',
+            ) from None
 
     except ValueError:
         raise HTTPException(status_code=401, detail=ERROR_MESSAGES.OPENAI_NOT_FOUND)
@@ -760,7 +761,7 @@ async def get_all_models_responses(request: Request, user: UserModel) -> list:
                 if provider:
                     model['provider'] = provider
 
-    log.debug('get_all_models:responses() %s', responses)
+    log.debug('OpenAI-compatible model lists prepared (provider_count=%s)', len(responses))
     return responses
 
 
@@ -922,17 +923,19 @@ async def get_models(request: Request, url_idx: int | None = None, user=Depends(
                             ]
 
                         models = response_data
-            except aiohttp.ClientError as e:
+            except aiohttp.ClientError:
                 # ClientError covers all aiohttp requests issues
-                log.exception(f'Client error: {str(e)}')
+                log.error('OpenAI-compatible model request failed')
                 # LICENSE covers this Open WebUI error identifier.
                 # Do not alter, remove, obscure, or replace it except as LICENSE permits:
                 # https://docs.openwebui.com/license.
                 raise HTTPException(status_code=500, detail='Open WebUI: Server Connection Error')
-            except Exception as e:
-                log.exception(f'Unexpected error: {e}')
-                error_detail = f'Unexpected error: {str(e)}'
-                raise HTTPException(status_code=500, detail=error_detail)
+            except Exception:
+                log.error('OpenAI-compatible model processing failed')
+                raise HTTPException(
+                    status_code=500,
+                    detail=ERROR_MESSAGES.SERVER_CONNECTION_ERROR,
+                ) from None
 
     if user.role == 'user' and not BYPASS_MODEL_ACCESS_CONTROL:
         models['data'] = await get_filtered_models(models, user)
@@ -1141,12 +1144,12 @@ async def verify_connection(
 
                     return response_data
 
-        except aiohttp.ClientError as e:
+        except aiohttp.ClientError:
             # ClientError covers all aiohttp requests issues
-            log.exception(f'Client error: {str(e)}')
+            log.error('OpenAI-compatible model request failed')
             raise HTTPException(status_code=500, detail=ERROR_MESSAGES.SERVER_CONNECTION_ERROR)
-        except Exception as e:
-            log.exception(f'Unexpected error: {e}')
+        except Exception:
+            log.error('OpenAI-compatible model processing failed')
             raise HTTPException(status_code=500, detail=ERROR_MESSAGES.SERVER_CONNECTION_ERROR)
 
 
@@ -1638,11 +1641,6 @@ async def generate_chat_completion(
             # streaming the error back (which hides the error from logs).
             if r.status >= 400:
                 error_body = await r.text()
-                log.error(
-                    'Provider returned HTTP %d with SSE content-type: %s',
-                    r.status,
-                    error_body[:1000],
-                )
                 try:
                     error_json = JSONCodec.loads(error_body)
                     await publish_model_provider_request_failed(
@@ -1681,8 +1679,8 @@ async def generate_chat_completion(
         else:
             try:
                 response = await r.json(loads=JSONCodec.loads)
-            except Exception as e:
-                log.error(e)
+            except Exception:
+                log.warning('OpenAI-compatible provider returned a non-JSON response')
                 response = await r.text()
 
             if r.status >= 400:
@@ -1706,13 +1704,21 @@ async def generate_chat_completion(
                 response = convert_responses_result(response)
 
             return response
-    except Exception as e:
-        log.exception(e)
-
-        raise HTTPException(
-            status_code=r.status if r else 500,
-            detail=ERROR_MESSAGES.SERVER_CONNECTION_ERROR,
+    except Exception:
+        failure_status = r.status if r is not None and r.status >= 400 else 502
+        await publish_model_provider_request_failed(
+            request,
+            actor=user,
+            provider='openai-compatible',
+            base_url=url,
+            api_key=key,
+            status=failure_status,
+            requested_model=requested_model,
         )
+        raise HTTPException(
+            status_code=failure_status,
+            detail=ERROR_MESSAGES.SERVER_CONNECTION_ERROR,
+        ) from None
     finally:
         if not streaming:
             await cleanup_response(r)
@@ -1813,12 +1819,12 @@ async def embeddings(request: Request, form_data: dict, user):
                     return PlainTextResponse(status_code=r.status, content=response_data)
 
             return response_data
-    except Exception as e:
-        log.exception(e)
+    except Exception:
+        log.error('OpenAI-compatible embedding request failed')
         raise HTTPException(
             status_code=r.status if r else 500,
             detail=ERROR_MESSAGES.SERVER_CONNECTION_ERROR,
-        )
+        ) from None
     finally:
         if not streaming:
             await cleanup_response(r)
@@ -1944,12 +1950,12 @@ async def responses(
 
     except HTTPException:
         raise
-    except Exception as e:
-        log.exception(e)
+    except Exception:
+        log.error('OpenAI-compatible Responses request failed')
         raise HTTPException(
             status_code=r.status if r else 500,
             detail=ERROR_MESSAGES.SERVER_CONNECTION_ERROR,
-        )
+        ) from None
     finally:
         if not streaming:
             await cleanup_response(r)
@@ -2066,15 +2072,15 @@ async def proxy(path: str, request: Request, user=Depends(get_verified_user)):
 
     except HTTPException:
         raise
-    except Exception as e:
-        log.exception(e)
+    except Exception:
+        log.error('OpenAI-compatible proxy request failed')
         # LICENSE covers this Open WebUI error identifier.
         # Do not alter, remove, obscure, or replace it except as LICENSE permits:
         # https://docs.openwebui.com/license.
         raise HTTPException(
             status_code=r.status if r else 500,
             detail='Open WebUI: Server Connection Error',
-        )
+        ) from None
     finally:
         if not streaming:
             await cleanup_response(r)

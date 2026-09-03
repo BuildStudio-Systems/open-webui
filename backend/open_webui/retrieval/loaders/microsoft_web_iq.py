@@ -39,11 +39,11 @@ class MicrosoftWebIQLoader(BaseLoader):
                 doc = self._browse_url(url)
                 if doc is not None:
                     yield doc
-            except Exception as e:
+            except Exception:
                 if self.continue_on_failure:
-                    log.warning(f'Error browsing {url} with Microsoft Web IQ: {e}')
+                    log.warning('Microsoft Web IQ failed to load one submitted page')
                 else:
-                    raise e
+                    raise
 
     def _browse_url(self, url: str) -> Document | None:
         headers = {
@@ -86,8 +86,7 @@ class MicrosoftWebIQLoader(BaseLoader):
                 except (TypeError, ValueError):
                     delay = min(8.0, float(2**attempt))
                 log.warning(
-                    'Microsoft Browse %s returned HTTP %s; retrying in %.1fs',
-                    url,
+                    'Microsoft Browse returned HTTP %s; retrying in %.1fs',
                     response.status_code,
                     delay,
                 )

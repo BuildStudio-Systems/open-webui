@@ -27,7 +27,7 @@ from open_webui.config import (
     DEFAULT_TOOLS_FUNCTION_CALLING_PROMPT_TEMPLATE,
     DEFAULT_VOICE_MODE_PROMPT_TEMPLATE,
 )
-from open_webui.constants import TASKS
+from open_webui.constants import ERROR_MESSAGES, TASKS
 from open_webui.env import (
     BYPASS_MODEL_ACCESS_CONTROL,
     CHAT_RESPONSE_MAX_TOOL_CALL_ITERATIONS,
@@ -112,7 +112,6 @@ from open_webui.utils.misc import (
     get_last_user_message_item,
     get_message_list,
     get_output_text,
-    get_response_error_detail,
     get_reasoning_details,
     get_system_message,
     is_string_allowed,
@@ -143,6 +142,61 @@ from starlette.responses import JSONResponse, Response, StreamingResponse
 
 logging.basicConfig(stream=sys.stdout, level=GLOBAL_LOG_LEVEL)
 log = logging.getLogger(__name__)
+
+_SAFE_PROVIDER_ERROR_CODES = frozenset(
+    {
+        'authentication_error',
+        'content_filter',
+        'context_length_exceeded',
+        'invalid_api_key',
+        'invalid_model',
+        'invalid_request_error',
+        'model_not_found',
+        'permission_denied',
+        'rate_limit_exceeded',
+        'server_error',
+    }
+)
+
+
+def _safe_streaming_provider_error(error: Any) -> str:
+    """Record bounded diagnostics without exposing the provider payload."""
+    values = [error]
+    if isinstance(error, dict) and isinstance(error.get('error'), dict):
+        values.append(error['error'])
+
+    status = None
+    code = None
+    for value in values:
+        if not isinstance(value, dict):
+            continue
+        if status is None:
+            raw_status = value.get('status_code', value.get('status'))
+            if isinstance(raw_status, int) and 100 <= raw_status <= 599:
+                status = raw_status
+        if code is None:
+            raw_code = value.get('code')
+            if isinstance(raw_code, str):
+                normalized_code = raw_code.strip().lower().replace('-', '_')
+                if normalized_code in _SAFE_PROVIDER_ERROR_CODES:
+                    code = normalized_code
+
+    if status == 429:
+        error_type = 'rate_limited'
+    elif status in {401, 403}:
+        error_type = 'authentication_error'
+    elif status == 404:
+        error_type = 'model_not_found'
+    else:
+        error_type = 'upstream_error'
+
+    log.warning(
+        'Provider returned error (streaming): status=%s error_type=%s code=%s',
+        status if status is not None else 'unknown',
+        error_type,
+        code or '-',
+    )
+    return ERROR_MESSAGES.SERVER_CONNECTION_ERROR
 
 
 def _is_tool_result_error(value: Any) -> bool:
@@ -547,8 +601,8 @@ def get_citation_source_from_tool_result(
                     'metadata': [{'source': tool_name, 'name': tool_name}],
                 }
             ]
-    except Exception as e:
-        log.exception(f'Error parsing tool result for {tool_name}: {e}')
+    except Exception:
+        log.warning('Tool result citation parsing failed')
         return [
             {
                 'source': {'name': tool_name, 'type': 'tool'},
@@ -1066,9 +1120,9 @@ async def process_tool_result(
         try:
             if not isinstance(tool_response_headers, dict):
                 tool_response_headers = dict(tool_response_headers)
-        except Exception as e:
+        except Exception:
             tool_response_headers = {}
-            log.debug(e)
+            log.debug('Tool response headers could not be normalized')
 
         if tool_response_headers and isinstance(tool_response_headers, dict):
             content_disposition = tool_response_headers.get(
@@ -1352,9 +1406,9 @@ async def chat_completion_tools_handler(
 
     try:
         response = await generate_chat_completion(request, form_data=payload, user=user)
-        log.debug('response=%r', response)
+        log.debug('Tool selection response received')
         content = await get_content_from_response(response)
-        log.debug('content=%r', content)
+        log.debug('Tool selection content received (present=%s)', bool(content))
 
         if not content:
             return body, {}
@@ -1369,14 +1423,16 @@ async def chat_completion_tools_handler(
             async def tool_call_handler(tool_call):
                 nonlocal skip_files
 
-                log.debug('tool_call=%r', tool_call)
-
                 tool_function_name = tool_call.get('name', None)
                 if tool_function_name not in tools:
-                    log.warning(f'Tool "{tool_function_name}" not found')
+                    log.warning('Requested tool is not available')
                     return
 
                 tool_function_params = tool_call.get('parameters', {})
+                log.debug(
+                    'Tool call parsed (parameter_count=%s)',
+                    len(tool_function_params) if isinstance(tool_function_params, dict) else 0,
+                )
 
                 tool = None
                 tool_type = ''
@@ -1482,14 +1538,14 @@ async def chat_completion_tools_handler(
             else:
                 await tool_call_handler(result)
 
-        except Exception as e:
-            log.debug('Error: %s', e)
+        except Exception:
+            log.debug('Tool call result processing failed')
             content = None
-    except Exception as e:
-        log.debug('Error: %s', e)
+    except Exception:
+        log.debug('Tool call processing failed')
         content = None
 
-    log.debug('tool_contexts: %s', sources)
+    log.debug('Tool contexts prepared (source_count=%s)', len(sources))
 
     if skip_files and 'files' in body.get('metadata', {}):
         del body['metadata']['files']
@@ -1551,14 +1607,14 @@ async def chat_web_search_handler(request: Request, form_data: dict, extra_param
             response = response[bracket_start:bracket_end]
             queries = JSONCodec.loads(response)
             queries = queries.get('queries', [])
-        except Exception as e:
+        except Exception:
             queries = [response]
 
         if ENABLE_QUERIES_CACHE:
             request.state.cached_queries = queries
 
-    except Exception as e:
-        log.exception(e)
+    except Exception:
+        log.warning('Web search query generation failed; using the user message')
         queries = [user_message or '']
 
     # Check if generated queries are empty
@@ -1651,15 +1707,14 @@ async def chat_web_search_handler(request: Request, form_data: dict, extra_param
                 }
             )
 
-    except Exception as e:
-        log.exception(e)
-        detail = e.detail if isinstance(e, HTTPException) else None
+    except Exception:
+        log.warning('Chat web search failed')
         await event_emitter(
             {
                 'type': 'status',
                 'data': {
                     'action': 'web_search',
-                    'description': (str(detail) if detail else 'An error occurred while searching the web'),
+                    'description': 'An error occurred while searching the web',
                     'queries': queries,
                     'done': True,
                     'error': True,
@@ -1850,15 +1905,8 @@ async def chat_image_generation_handler(request: Request, form_data: dict, extra
             )
 
             system_message_content = '<context>The requested image has been edited and created and is now being shown to the user. Let them know that it has been generated.</context>'
-        except Exception as e:
-            log.debug(e)
-
-            error_message = ''
-            if isinstance(e, HTTPException):
-                if e.detail and isinstance(e.detail, dict):
-                    error_message = e.detail.get('message', str(e.detail))
-                else:
-                    error_message = str(e.detail)
+        except Exception:
+            log.warning('Image edit request failed')
 
             await __event_emitter__(
                 {
@@ -1870,7 +1918,7 @@ async def chat_image_generation_handler(request: Request, form_data: dict, extra
                 }
             )
 
-            system_message_content = f'<context>Image generation was attempted but failed. The system is currently unable to generate the image. Tell the user that the following error occurred: {error_message}</context>'
+            system_message_content = '<context>Image generation was attempted but failed. The system is currently unable to generate the image. Tell the user that image generation is temporarily unavailable.</context>'
 
     elif not await Config.get('image_generation.enable'):
         await __event_emitter__(
@@ -1920,11 +1968,11 @@ async def chat_image_generation_handler(request: Request, form_data: dict, extra
                     response = response[bracket_start:bracket_end]
                     response = JSONCodec.loads(response)
                     prompt = response.get('prompt', [])
-                except Exception as e:
+                except Exception:
                     prompt = user_message
 
-            except Exception as e:
-                log.exception(e)
+            except Exception:
+                log.warning('Image prompt generation failed; using the original prompt')
                 prompt = user_message
 
         try:
@@ -1958,15 +2006,8 @@ async def chat_image_generation_handler(request: Request, form_data: dict, extra
             )
 
             system_message_content = '<context>The requested image has been created by the system successfully and is now being shown to the user. Let the user know that the image they requested has been generated and is now shown in the chat.</context>'
-        except Exception as e:
-            log.debug(e)
-
-            error_message = ''
-            if isinstance(e, HTTPException):
-                if e.detail and isinstance(e.detail, dict):
-                    error_message = e.detail.get('message', str(e.detail))
-                else:
-                    error_message = str(e.detail)
+        except Exception:
+            log.warning('Image generation request failed')
 
             await __event_emitter__(
                 {
@@ -1978,7 +2019,7 @@ async def chat_image_generation_handler(request: Request, form_data: dict, extra
                 }
             )
 
-            system_message_content = f'<context>Image generation was attempted but failed because of an error. The system is currently unable to generate the image. Tell the user that the following error occurred: {error_message}</context>'
+            system_message_content = '<context>Image generation was attempted but failed. The system is currently unable to generate the image. Tell the user that image generation is temporarily unavailable.</context>'
 
     if system_message_content:
         form_data['messages'] = add_or_update_system_message(system_message_content, form_data['messages'])
@@ -2073,10 +2114,10 @@ async def chat_completion_files_handler(
                 full_context=all_full_context or rag_config.get('rag.full_context'),
                 user=user,
             )
-        except Exception as e:
-            log.exception(e)
+        except Exception:
+            log.warning('RAG source retrieval failed')
 
-        log.debug('rag_contexts:sources: %s', sources)
+        log.debug('RAG contexts prepared (source_count=%s)', len(sources or []))
 
         unique_ids = set()
         for source in sources or []:
@@ -2147,8 +2188,8 @@ async def convert_url_images_to_base64(form_data, user=None):
                     )
                 else:
                     new_content.append(item)
-            except Exception as e:
-                log.debug('Error converting image URL to base64: %s', e)
+            except Exception:
+                log.debug('Image URL conversion failed')
                 new_content.append(item)
 
         message['content'] = new_content
@@ -2404,7 +2445,8 @@ async def process_chat_payload(request, form_data, user, metadata, model):
     model_system_prompt = (form_data.get('params') or {}).get('system')
 
     form_data = apply_params_to_form_data(form_data, model)
-    log.debug('form_data: %s', form_data)
+    # Never copy chat messages or system prompts into application logs.
+    log.debug('chat form prepared: stream=%s', bool(form_data.get('stream')))
 
     # Guided regeneration: extract before it reaches the LLM provider
     regeneration_prompt = form_data.pop('regeneration_prompt', None)
@@ -2484,7 +2526,7 @@ async def process_chat_payload(request, form_data, user, metadata, model):
                     append=True,
                 )
         except Exception:
-            log.exception('Context compaction failed; continuing with full chat history')
+            log.warning('Context compaction failed; continuing with full chat history')
 
     # Process messages with OR-aligned output items for clean LLM messages
     for message in form_data.get('messages', []):
@@ -2899,8 +2941,8 @@ async def process_chat_payload(request, form_data, user, metadata, model):
                                 'client': client,
                                 'direct': False,
                             }
-                    except Exception as e:
-                        log.debug(e)
+                    except Exception:
+                        log.warning('MCP tool discovery failed')
                         if event_emitter:
                             await event_emitter(
                                 {
@@ -2952,9 +2994,9 @@ async def process_chat_payload(request, form_data, user, metadata, model):
                         form_data['messages'],
                         append=True,
                     )
-            except Exception as e:
-                log.exception(e)
-                raise HTTPException(status_code=503, detail=f'Terminal unavailable: {e}') from e
+            except Exception as error:
+                log.warning('Terminal tool discovery failed')
+                raise HTTPException(status_code=503, detail='Terminal unavailable') from error
 
         if direct_tool_servers:
             for tool_server in direct_tool_servers:
@@ -3041,8 +3083,8 @@ async def process_chat_payload(request, form_data, user, metadata, model):
                         request, form_data, extra_params, user, models, tools_dict
                     )
                     sources.extend(flags.get('sources', []))
-                except Exception as e:
-                    log.exception(e)
+                except Exception:
+                    log.warning('Legacy tool-call preparation failed')
 
     # Check if file context extraction is enabled for this model (default True)
     file_context_enabled = (model.get('info', {}).get('meta', {}).get('capabilities') or {}).get('file_context', True)
@@ -3051,8 +3093,8 @@ async def process_chat_payload(request, form_data, user, metadata, model):
         try:
             form_data, flags = await chat_completion_files_handler(request, form_data, extra_params, user)
             sources.extend(flags.get('sources', []))
-        except Exception as e:
-            log.exception(e)
+        except Exception:
+            log.warning('File-context preparation failed')
 
     # Save the pre-RAG message state so the native tool call loop can
     # restore to the true original (before file-source injection) rather
@@ -3161,8 +3203,8 @@ async def execute_tool_call_for_output(request, form_data, user, metadata, event
         except Exception:
             try:
                 params = ast.literal_eval(tool_args)
-            except Exception as e:
-                log.debug(e)
+            except Exception:
+                log.debug('Tool-call arguments could not be parsed')
                 return {
                     'tool_call_id': tool_call.get('id', ''),
                     'content': (
@@ -3646,8 +3688,8 @@ async def get_system_oauth_token(request, user):
                     user.id,
                     best.id,
                 )
-    except Exception as e:
-        log.error(f'Error getting OAuth token: {e}')
+    except Exception:
+        log.warning('OAuth token lookup failed')
     return oauth_token
 
 
@@ -3967,8 +4009,8 @@ async def outlet_filter_handler(ctx):
         # Pipeline outlet filters
         try:
             outlet_data = await process_pipeline_outlet_filter(request, outlet_data, user, models)
-        except Exception as e:
-            log.debug('Pipeline outlet filter error: %s', e)
+        except Exception:
+            log.debug('Pipeline outlet filter failed')
 
         # Function outlet filters
         extra_params = {
@@ -4026,8 +4068,8 @@ async def outlet_filter_handler(ctx):
                         'data': {'messages': outlet_result['messages']},
                     }
                 )
-    except Exception as e:
-        log.debug('Error running outlet filters: %s', e)
+    except Exception:
+        log.debug('Outlet filter execution failed')
 
 
 async def non_streaming_chat_response_handler(response, ctx):
@@ -4049,30 +4091,34 @@ async def non_streaming_chat_response_handler(response, ctx):
     if event_emitter:
         try:
             if 'error' in response_data:
-                error = response_data.get('error')
+                raw_status = getattr(response, 'status_code', 500)
+                error_status = raw_status if isinstance(raw_status, int) and 100 <= raw_status <= 599 else 500
+                safe_error = ERROR_MESSAGES.SERVER_CONNECTION_ERROR
 
-                if isinstance(error, dict):
-                    error = error.get('detail', error)
-                else:
-                    error = str(error)
-
-                log.error('Provider returned error (non-streaming): %s', error)
+                # Upstream error objects can echo customer prompts, signed
+                # URLs, and bearer tokens. Preserve only bounded operational
+                # metadata in logs and send a fixed error to storage/clients.
+                log.log(
+                    logging.ERROR if error_status >= 500 else logging.WARNING,
+                    'Provider returned error (non-streaming): status=%d error_type=upstream_error',
+                    error_status,
+                )
 
                 if save_to_chat:
                     await Chats.upsert_message_to_chat_by_id_and_message_id(
                         metadata['chat_id'],
                         metadata['message_id'],
                         {
-                            'error': {'content': error},
+                            'error': {'content': safe_error},
                         },
                     )
-                if isinstance(error, str) or isinstance(error, dict):
-                    await event_emitter(
-                        {
-                            'type': 'chat:message:error',
-                            'data': {'error': {'content': error}},
-                        }
-                    )
+                await event_emitter(
+                    {
+                        'type': 'chat:message:error',
+                        'data': {'error': {'content': safe_error}},
+                    }
+                )
+                response_data = {'error': {'detail': safe_error}}
 
             if 'selected_model_id' in response_data and save_to_chat:
                 await Chats.upsert_message_to_chat_by_id_and_message_id(
@@ -4171,11 +4217,10 @@ async def non_streaming_chat_response_handler(response, ctx):
                     await background_tasks_handler(ctx)
 
             response = build_response_object(response, merge_events_into_response(response_data, events))
-        except Exception as e:
-            log.debug('Error occurred while processing request: %s', e)
+        except Exception:
+            log.warning('Non-streaming chat response processing failed')
             chat_id = metadata.get('chat_id')
             if getattr(request.state, 'internal', False) is not True and chat_id and is_saved_chat_id(chat_id):
-                webui_url = await Config.get('webui.url')
                 await publish_event(
                     request,
                     EVENTS.CHAT_FAILED,
@@ -4183,12 +4228,9 @@ async def non_streaming_chat_response_handler(response, ctx):
                     subject_id=chat_id,
                     subject_type='chat',
                     data={
-                        'user_id': user.id,
                         'chat_id': chat_id,
                         'message_id': metadata.get('message_id'),
-                        'model_id': metadata.get('model_id'),
-                        'url': f'{webui_url}/c/{chat_id}' if webui_url else f'/c/{chat_id}',
-                        'message': str(e),
+                        'error_type': 'response_processing_error',
                     },
                     message='Chat failed',
                 )
@@ -4596,16 +4638,6 @@ async def streaming_chat_response_handler(response, ctx):
             def full_output():
                 return prior_output + output if prior_output else output
 
-            def get_message_error_content(error):
-                if isinstance(error, HTTPException):
-                    error = error.detail
-                elif isinstance(error, dict):
-                    error = error.get('detail', error)
-                else:
-                    error = str(error)
-
-                return error if isinstance(error, (str, dict)) else str(error)
-
             async def emit_message_error(error_content):
                 if save_to_chat:
                     await Chats.upsert_message_to_chat_by_id_and_message_id(
@@ -4929,10 +4961,11 @@ async def streaming_chat_response_handler(response, ctx):
                                             response_metadata['usage'] = usage
 
                                         if response_metadata.get('error'):
+                                            safe_error = _safe_streaming_provider_error(response_metadata['error'])
                                             await event_emitter(
                                                 {
                                                     'type': 'chat:completion',
-                                                    'data': {'error': response_metadata['error']},
+                                                    'data': {'error': safe_error},
                                                 }
                                             )
 
@@ -4966,14 +4999,14 @@ async def streaming_chat_response_handler(response, ctx):
                                     if not choices:
                                         error = data.get('error', {})
                                         if error:
-                                            log.error('Provider returned error (streaming): %s', error)
+                                            safe_error = _safe_streaming_provider_error(error)
                                             if save_to_chat:
                                                 try:
                                                     await Chats.upsert_message_to_chat_by_id_and_message_id(
                                                         metadata['chat_id'],
                                                         metadata['message_id'],
                                                         {
-                                                            'error': {'content': error},
+                                                            'error': {'content': safe_error},
                                                         },
                                                     )
                                                 except Exception:
@@ -4982,7 +5015,7 @@ async def streaming_chat_response_handler(response, ctx):
                                                 {
                                                     'type': 'chat:completion',
                                                     'data': {
-                                                        'error': error,
+                                                        'error': safe_error,
                                                     },
                                                 }
                                             )
@@ -5446,12 +5479,12 @@ async def streaming_chat_response_handler(response, ctx):
                                     )
                         except (asyncio.CancelledError, KeyboardInterrupt):
                             raise
-                        except Exception as e:
+                        except Exception:
                             done = 'data: [DONE]' in line
                             if done:
                                 pass
                             else:
-                                log.debug('Error: %s', e)
+                                log.debug('Streaming response chunk could not be processed')
                                 continue
                     await flush_pending_delta_data()
 
@@ -5662,8 +5695,8 @@ async def streaming_chat_response_handler(response, ctx):
                             except Exception:
                                 try:
                                     params = ast.literal_eval(tool_args)
-                                except Exception as e:
-                                    log.debug(e)
+                                except Exception:
+                                    log.debug('Tool-call arguments could not be parsed')
                                     return None
                         tool_call.setdefault('function', {})['arguments'] = JSONCodec.dumps(params)
                         return params
@@ -5789,8 +5822,8 @@ async def streaming_chat_response_handler(response, ctx):
                                     tool_id=tool.get('tool_id', '') if tool else '',
                                 )
                                 tool_call_sources.extend(citation_sources)
-                            except Exception as e:
-                                log.exception(f'Error extracting citation source: {e}')
+                            except Exception:
+                                log.warning('Citation source extraction failed')
 
                         results.append(
                             {
@@ -6022,14 +6055,21 @@ async def streaming_chat_response_handler(response, ctx):
                             output[:0] = prior_output
                             prior_output = []
                         elif getattr(res, 'status_code', 200) >= 400:
-                            await emit_message_error(get_message_error_content(get_response_error_detail(res)))
+                            raw_status = getattr(res, 'status_code', 500)
+                            continuation_status = (
+                                raw_status if isinstance(raw_status, int) and 100 <= raw_status <= 599 else 500
+                            )
+                            log.warning(
+                                'Tool-call continuation provider failed: status=%s error_type=upstream_error',
+                                continuation_status,
+                            )
+                            await emit_message_error(ERROR_MESSAGES.SERVER_CONNECTION_ERROR)
                             break
                         else:
                             break
-                    except Exception as e:
-                        error_content = get_message_error_content(e)
-                        log.exception('Tool-call continuation failed: %s', error_content)
-                        await emit_message_error(error_content)
+                    except Exception:
+                        log.warning('Tool-call continuation failed')
+                        await emit_message_error(ERROR_MESSAGES.SERVER_CONNECTION_ERROR)
                         break
 
                 if (
@@ -6118,7 +6158,10 @@ async def streaming_chat_response_handler(response, ctx):
                                 else:
                                     ci_output = {'stdout': 'Code interpreter engine not configured.'}
 
-                                log.debug('Code interpreter output: %s', ci_output)
+                                log.debug(
+                                    'Code interpreter execution completed output_type=%s',
+                                    type(ci_output).__name__,
+                                )
 
                                 # Handle error responses from event_caller
                                 # (e.g. session disconnected, timeout)
@@ -6221,14 +6264,21 @@ async def streaming_chat_response_handler(response, ctx):
                             if isinstance(res, StreamingResponse):
                                 await stream_body_handler(res, new_form_data)
                             elif getattr(res, 'status_code', 200) >= 400:
-                                await emit_message_error(get_message_error_content(get_response_error_detail(res)))
+                                raw_status = getattr(res, 'status_code', 500)
+                                continuation_status = (
+                                    raw_status if isinstance(raw_status, int) and 100 <= raw_status <= 599 else 500
+                                )
+                                log.warning(
+                                    'Code interpreter continuation provider failed: status=%s error_type=upstream_error',
+                                    continuation_status,
+                                )
+                                await emit_message_error(ERROR_MESSAGES.SERVER_CONNECTION_ERROR)
                                 break
                             else:
                                 break
-                        except Exception as e:
-                            error_content = get_message_error_content(e)
-                            log.exception('Code interpreter continuation failed: %s', error_content)
-                            await emit_message_error(error_content)
+                        except Exception:
+                            log.warning('Code interpreter continuation failed')
+                            await emit_message_error(ERROR_MESSAGES.SERVER_CONNECTION_ERROR)
                             break
 
                 # Mark all in-progress items as completed

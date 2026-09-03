@@ -24,7 +24,7 @@ async def search_openserp(
     url = f'{base_url.rstrip("/")}/mega/search'
     params = {'text': query, 'limit': count}
 
-    log.debug('searching OpenSERP at %s', url)
+    log.debug('Starting OpenSERP search')
 
     session = await get_session()
     async with session.get(url, params=params) as response:

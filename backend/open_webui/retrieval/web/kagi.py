@@ -33,7 +33,7 @@ def search_kagi(api_key: str, query: str, count: int, filter_list: Optional[list
         for result in search_results
     ]
 
-    print(results)
+    log.info('Kagi search returned %s results', len(results))
 
     if filter_list:
         results = get_filtered_results(results, filter_list)

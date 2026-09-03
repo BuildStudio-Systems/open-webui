@@ -143,6 +143,7 @@ from open_webui.models.messages import Messages
 from open_webui.models.models import Models, normalize_model_tags
 from open_webui.models.users import Users
 from open_webui.routers import (
+    agent_files,
     analytics,
     audio,
     auths,
@@ -824,6 +825,9 @@ app.include_router(pipelines.router, prefix='/api/v1/pipelines', tags=['pipeline
 app.include_router(tasks.router, prefix='/api/v1/tasks', tags=['tasks'])
 app.include_router(images.router, prefix='/api/v1/images', tags=['images'])
 app.include_router(videos.router, prefix='/api/v1/videos', tags=['videos'])
+app.include_router(
+    agent_files.router, prefix='/api/v1/agent-files', tags=['agent-files']
+)
 
 app.include_router(audio.router, prefix='/api/v1/audio', tags=['audio'])
 app.include_router(retrieval.router, prefix='/api/v1/retrieval', tags=['retrieval'])

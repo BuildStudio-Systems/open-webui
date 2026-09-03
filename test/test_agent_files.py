@@ -16,14 +16,19 @@ def agent_files_module(tmp_path_factory):
     return agent_files
 
 
-def test_hermes_connection_selects_agent_port(agent_files_module, monkeypatch):
-    monkeypatch.setenv(
-        "OPENAI_API_BASE_URLS",
-        "http://127.0.0.1:8000/v1;http://127.0.0.1:8642/v1",
-    )
-    monkeypatch.setenv("OPENAI_API_KEYS", "model-key;agent-key")
+@pytest.mark.asyncio
+async def test_hermes_connection_selects_agent_port(agent_files_module, monkeypatch):
+    async def runtime_config():
+        return (
+            True,
+            ["http://127.0.0.1:8000/v1", "http://127.0.0.1:8642/v1"],
+            ["model-key", "agent-key"],
+            {},
+        )
 
-    base_url, headers = agent_files_module._hermes_connection()
+    monkeypatch.setattr(agent_files_module, "get_openai_runtime_config", runtime_config)
+
+    base_url, headers = await agent_files_module._hermes_connection()
 
     assert base_url == "http://127.0.0.1:8642/v1"
     assert headers == {"Authorization": "Bearer agent-key"}
@@ -65,11 +70,10 @@ async def test_download_proxy_forwards_range_and_response_headers(agent_files_mo
         async def aclose(self):
             captured["client_closed"] = True
 
-    monkeypatch.setattr(
-        agent_files_module,
-        "_hermes_connection",
-        lambda: ("http://127.0.0.1:8642/v1", {"Authorization": "Bearer secret"}),
-    )
+    async def hermes_connection():
+        return "http://127.0.0.1:8642/v1", {"Authorization": "Bearer secret"}
+
+    monkeypatch.setattr(agent_files_module, "_hermes_connection", hermes_connection)
     monkeypatch.setattr(agent_files_module.httpx, "AsyncClient", FakeClient)
     request = SimpleNamespace(headers={"range": "bytes=2-5"})
 

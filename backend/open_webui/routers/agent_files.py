@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import re
 from collections.abc import AsyncIterator
 
@@ -8,23 +7,20 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
+from open_webui.routers.openai import get_openai_runtime_config
 from open_webui.utils.auth import get_verified_user
 
 router = APIRouter()
 _ARTIFACT_ID_RE = re.compile(r"^[0-9a-f]{32}$")
 
 
-def _hermes_connection() -> tuple[str, dict[str, str]]:
-    """Resolve the Hermes entry from the OpenAI-compatible connection env."""
-    raw_urls = os.getenv("OPENAI_API_BASE_URLS") or os.getenv("OPENAI_API_BASE_URL", "http://127.0.0.1:8642/v1")
-    raw_keys = os.getenv("OPENAI_API_KEYS") or os.getenv("OPENAI_API_KEY", "")
-    urls = [value.strip().rstrip("/") for value in raw_urls.split(";")]
-    keys = [value.strip() for value in raw_keys.split(";")]
+async def _hermes_connection() -> tuple[str, dict[str, str]]:
+    """Resolve Hermes from Open WebUI's current persisted connections."""
+    _, urls, keys, _ = await get_openai_runtime_config()
+    index = next((i for i, url in enumerate(urls) if ":8642" in url), None)
+    if index is None:
+        raise HTTPException(status_code=503, detail="Agent file delivery is not configured")
 
-    index = next(
-        (i for i, url in enumerate(urls) if ":8642" in url),
-        0,
-    )
     base_url = urls[index] if index < len(urls) else ""
     api_key = keys[index] if index < len(keys) else ""
     if not base_url or not api_key:
@@ -51,7 +47,7 @@ async def download_agent_file(
     if not _ARTIFACT_ID_RE.fullmatch(artifact_id):
         raise HTTPException(status_code=404, detail="File not found")
 
-    base_url, headers = _hermes_connection()
+    base_url, headers = await _hermes_connection()
     for name in ("range", "if-none-match", "if-modified-since"):
         if value := request.headers.get(name):
             headers[name] = value

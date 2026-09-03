@@ -40,7 +40,11 @@ from open_webui.models.groups import Groups
 from open_webui.models.models import Models
 from open_webui.models.users import UserModel
 from open_webui.utils.access_control import check_model_access, has_connection_access, has_permission
-from open_webui.utils.agent_file_delivery import file_owner_headers, is_local_hermes_url
+from open_webui.utils.agent_file_delivery import (
+    FILE_OWNER_HEADER,
+    file_owner_headers,
+    is_local_hermes_url,
+)
 from open_webui.utils.anthropic import ANTHROPIC_VERSION, get_anthropic_models, is_anthropic_url
 from open_webui.utils.auth import get_admin_user, get_verified_user
 from open_webui.utils.headers import get_custom_headers, include_user_info_headers
@@ -218,9 +222,13 @@ async def get_headers_and_cookies(
         custom_headers = await get_custom_headers(config.get('headers'), user, metadata, request=request)
         headers.update(custom_headers)
 
-    # Bind Hermes-generated download links to the verified Open WebUI user.
-    # Apply this after custom headers so clients/config cannot spoof ownership.
+    # Bind Hermes-generated download links only for administrators. The shared
+    # Hermes media cache is not a customer tenant boundary. Apply this after
+    # custom headers so clients/config cannot spoof ownership.
     if user and is_local_hermes_url(url):
+        for header_name in tuple(headers):
+            if header_name.lower() == FILE_OWNER_HEADER.lower():
+                del headers[header_name]
         headers.update(file_owner_headers(user))
 
     return headers, cookies

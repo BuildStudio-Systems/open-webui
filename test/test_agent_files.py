@@ -84,8 +84,44 @@ async def test_download_proxy_forwards_range_and_response_headers(agent_files_mo
 
     assert captured["url"] == "http://127.0.0.1:8642/v1/files/" + "a" * 32
     assert captured["request_headers"]["range"] == "bytes=2-5"
+    assert captured["request_headers"]["X-BuildStudio-User-Id"] == "user-1"
     assert response.status_code == 206
     assert response.headers["content-range"] == "bytes 2-5/10"
     assert body == b"2345"
     assert captured["response_closed"] is True
     assert captured["client_closed"] is True
+
+
+def test_owner_headers_accept_only_bounded_identifiers(agent_files_module):
+    helper = agent_files_module.file_owner_headers
+
+    assert helper(SimpleNamespace(id="user-1")) == {
+        "X-BuildStudio-User-Id": "user-1"
+    }
+    assert helper(SimpleNamespace(id="bad owner")) == {}
+    assert helper(SimpleNamespace(id="x" * 129)) == {}
+
+
+@pytest.mark.asyncio
+async def test_openai_requests_bind_local_hermes_to_verified_user(
+    agent_files_module,
+):
+    from open_webui.routers import openai
+
+    request = SimpleNamespace(cookies={})
+    user = SimpleNamespace(id="user-1")
+    local_headers, _ = await openai.get_headers_and_cookies(
+        request,
+        "http://127.0.0.1:8642/v1",
+        config={"auth_type": "none"},
+        user=user,
+    )
+    remote_headers, _ = await openai.get_headers_and_cookies(
+        request,
+        "https://api.example.com/v1",
+        config={"auth_type": "none"},
+        user=user,
+    )
+
+    assert local_headers["X-BuildStudio-User-Id"] == "user-1"
+    assert "X-BuildStudio-User-Id" not in remote_headers

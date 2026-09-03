@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from open_webui.routers.openai import get_openai_runtime_config
+from open_webui.utils.agent_file_delivery import file_owner_headers, is_local_hermes_url
 from open_webui.utils.auth import get_verified_user
 
 router = APIRouter()
@@ -17,7 +18,7 @@ _ARTIFACT_ID_RE = re.compile(r"^[0-9a-f]{32}$")
 async def _hermes_connection() -> tuple[str, dict[str, str]]:
     """Resolve Hermes from Open WebUI's current persisted connections."""
     _, urls, keys, _ = await get_openai_runtime_config()
-    index = next((i for i, url in enumerate(urls) if ":8642" in url), None)
+    index = next((i for i, url in enumerate(urls) if is_local_hermes_url(url)), None)
     if index is None:
         raise HTTPException(status_code=503, detail="Agent file delivery is not configured")
 
@@ -48,6 +49,7 @@ async def download_agent_file(
         raise HTTPException(status_code=404, detail="File not found")
 
     base_url, headers = await _hermes_connection()
+    headers.update(file_owner_headers(_user))
     for name in ("range", "if-none-match", "if-modified-since"):
         if value := request.headers.get(name):
             headers[name] = value

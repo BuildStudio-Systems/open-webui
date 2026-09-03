@@ -35,9 +35,7 @@ async def test_hermes_connection_selects_agent_port(agent_files_module, monkeypa
 
 
 @pytest.mark.asyncio
-async def test_hermes_connection_rejects_ambiguous_matches(
-    agent_files_module, monkeypatch
-):
+async def test_hermes_connection_rejects_ambiguous_matches(agent_files_module, monkeypatch):
     async def runtime_config():
         return (
             True,
@@ -95,9 +93,7 @@ async def test_download_proxy_forwards_range_and_response_headers(agent_files_mo
 
     monkeypatch.setattr(agent_files_module, "_hermes_connection", hermes_connection)
     monkeypatch.setattr(agent_files_module.httpx, "AsyncClient", FakeClient)
-    request = SimpleNamespace(
-        headers={"range": "bytes=2-5", "if-range": '"clip-v1"'}
-    )
+    request = SimpleNamespace(headers={"range": "bytes=2-5", "if-range": '"clip-v1"'})
 
     response = await agent_files_module.download_agent_file(
         "a" * 32,
@@ -125,9 +121,7 @@ async def test_download_proxy_forwards_range_and_response_headers(agent_files_mo
 def test_owner_headers_accept_only_bounded_identifiers(agent_files_module):
     helper = agent_files_module.file_owner_headers
 
-    assert helper(SimpleNamespace(id="user-1", role="admin")) == {
-        "X-BuildStudio-User-Id": "user-1"
-    }
+    assert helper(SimpleNamespace(id="user-1", role="admin")) == {"X-BuildStudio-User-Id": "user-1"}
     assert helper(SimpleNamespace(id="user-1", role="user")) == {}
     assert helper(SimpleNamespace(id="bad owner", role="admin")) == {}
     assert helper(SimpleNamespace(id="x" * 129, role="admin")) == {}
@@ -145,9 +139,7 @@ def test_local_hermes_url_is_strict(agent_files_module):
 
 
 @pytest.mark.asyncio
-async def test_download_proxy_preserves_416_and_closes_resources(
-    agent_files_module, monkeypatch
-):
+async def test_download_proxy_preserves_416_and_closes_resources(agent_files_module, monkeypatch):
     captured = {}
 
     class FakeResponse:
@@ -191,14 +183,12 @@ async def test_download_proxy_preserves_416_and_closes_resources(
 
     assert response.status_code == 416
     assert response.headers["content-range"] == "bytes */10"
-    assert "content-length" not in response.headers
+    assert response.headers["content-length"] == "0"
     assert captured == {"response_closed": True, "client_closed": True}
 
 
 @pytest.mark.asyncio
-async def test_download_proxy_closes_client_on_connect_timeout(
-    agent_files_module, monkeypatch
-):
+async def test_download_proxy_closes_client_on_connect_timeout(agent_files_module, monkeypatch):
     captured = {}
 
     class FakeClient:
@@ -240,8 +230,8 @@ async def test_openai_requests_bind_local_hermes_to_verified_user(
     from open_webui.routers import openai
 
     request = SimpleNamespace(cookies={})
-    admin = SimpleNamespace(id="user-1", role="admin")
-    customer = SimpleNamespace(id="user-2", role="user")
+    admin = SimpleNamespace(id="user-1", role="admin", name="Admin", email="admin@example.test")
+    customer = SimpleNamespace(id="user-2", role="user", name="Customer", email="customer@example.test")
     local_headers, _ = await openai.get_headers_and_cookies(
         request,
         "http://127.0.0.1:8642/v1",

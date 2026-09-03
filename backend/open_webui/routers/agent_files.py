@@ -40,9 +40,7 @@ def _upstream_error(response: httpx.Response) -> HTTPException:
     return HTTPException(status_code=502, detail="Agent file download failed")
 
 
-def _download_headers(
-    response: httpx.Response, *, include_content_length: bool = True
-) -> dict[str, str]:
+def _download_headers(response: httpx.Response, *, include_content_length: bool = True) -> dict[str, str]:
     headers = {
         "cache-control": "private, no-store",
         "content-security-policy": "sandbox",
@@ -59,9 +57,7 @@ def _download_headers(
     ):
         if value := response.headers.get(name):
             headers[name] = value
-    if include_content_length and (
-        content_length := response.headers.get("content-length")
-    ):
+    if include_content_length and (content_length := response.headers.get("content-length")):
         headers["content-length"] = content_length
     return headers
 
@@ -89,9 +85,7 @@ async def download_agent_file(
 
     client = httpx.AsyncClient(timeout=_DOWNLOAD_TIMEOUT, limits=_DOWNLOAD_LIMITS)
     try:
-        upstream_request = client.build_request(
-            "GET", f"{base_url}/files/{artifact_id}", headers=headers
-        )
+        upstream_request = client.build_request("GET", f"{base_url}/files/{artifact_id}", headers=headers)
         response = await client.send(upstream_request, stream=True)
     except httpx.TimeoutException as exc:
         await client.aclose()

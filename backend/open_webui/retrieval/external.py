@@ -296,6 +296,13 @@ async def retrieve_external_knowledge(
     count: int,
     user=None,
 ) -> dict:
+    # THERE bindings are authoritative; client-editable metadata never selects
+    # an engine ID, URL or credential. This hook also serves native chat tools.
+    from open_webui.there_integration.access import is_managed
+    if await is_managed(knowledge.id):
+        from open_webui.there_integration.retrieval import retrieve
+        return await retrieve(knowledge.id, queries, count, user)
+
     external = (knowledge.meta or {}).get('external', {})
     connection_id = external.get('connection_id')
     if not connection_id:

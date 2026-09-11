@@ -1,7 +1,9 @@
 import json
 import logging
+import os
 import sys
 import traceback
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from loguru import logger
@@ -23,6 +25,35 @@ from open_webui.utils.json_codec import JSONCodec
 
 if TYPE_CHECKING:
     from loguru import Message, Record
+
+
+# Set only after Loguru has successfully installed the configured audit-file
+# handler.  The administrator WeChat-chat endpoints use this state as one part
+# of their fail-closed access check; configuration alone is not proof that an
+# audit sink was actually created.
+_AUDIT_FILE_SINK_ID: int | None = None
+
+
+def audit_file_sink_is_ready() -> bool:
+    """Return whether the configured audit file sink is active and writable.
+
+    ``logger.add()`` opens the file synchronously (``enqueue`` is not enabled),
+    so a recorded sink id proves initialization succeeded.  Re-opening the
+    configured path for append catches later permission, mount, and path
+    failures before sensitive administrator reads are allowed.
+    """
+    if _AUDIT_FILE_SINK_ID is None:
+        return False
+
+    try:
+        audit_path = Path(AUDIT_LOGS_FILE_PATH)
+        if not audit_path.is_file():
+            return False
+        with audit_path.open("ab"):
+            pass
+        return os.access(audit_path, os.W_OK)
+    except (OSError, ValueError):
+        return False
 
 
 def stdout_format(record: 'Record') -> str:
@@ -176,7 +207,10 @@ def start_logger():
     Parameters:
     enable_audit_logging (bool): Determines whether audit-specific log entries should be recorded to file.
     """
+    global _AUDIT_FILE_SINK_ID
+
     logger.remove()
+    _AUDIT_FILE_SINK_ID = None
 
     audit_filter = lambda record: True if ENABLE_AUDIT_STDOUT else 'auditable' not in record['extra']
     if LOG_FORMAT == 'json':
@@ -196,7 +230,7 @@ def start_logger():
         )
     if AUDIT_LOG_LEVEL != 'NONE' and ENABLE_AUDIT_LOGS_FILE:
         try:
-            logger.add(
+            _AUDIT_FILE_SINK_ID = logger.add(
                 AUDIT_LOGS_FILE_PATH,
                 level='INFO',
                 rotation=AUDIT_LOG_FILE_ROTATION_SIZE,
@@ -204,6 +238,11 @@ def start_logger():
                 format=file_format,
                 filter=lambda record: record['extra'].get('auditable') is True,
                 diagnose=LOGURU_DIAGNOSE,
+                # Sensitive administrator endpoints synchronously emit their
+                # access record before returning content.  Propagating sink
+                # failures lets those endpoints fail closed if the filesystem
+                # becomes unavailable after the readiness preflight.
+                catch=False,
             )
         except Exception as e:
             logger.error(f'Failed to initialize audit log file handler: {str(e)}')

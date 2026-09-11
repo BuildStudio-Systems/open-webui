@@ -52,7 +52,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 log = logging.getLogger(__name__)
 
-router = APIRouter()
+async def protect_there_engine_writes(request: Request, user=Depends(get_verified_user)):
+    """Content lifecycle must use the journaled THERE API, sharing remains native."""
+    if request.method in ('GET', 'HEAD', 'OPTIONS') or request.url.path.endswith('/access/update'):
+        return
+    resource_id = request.path_params.get('id')
+    if resource_id:
+        from open_webui.there_integration.access import is_managed
+        if await is_managed(resource_id):
+            raise HTTPException(409, '请在 THERE 工作台管理该知识库内容。')
+
+
+router = APIRouter(dependencies=[Depends(protect_there_engine_writes)])
 
 ############################
 # getKnowledgeBases

@@ -1,4 +1,5 @@
 from __future__ import annotations
+from open_webui import studio_identity as studio
 
 import asyncio
 import datetime
@@ -262,7 +263,11 @@ async def get_session_user(
         token = request.cookies.get('token')
     if token is None and getattr(request.state, 'token', None):
         token = request.state.token.credentials
-    data = decode_token(token) if token else None
+    if studio.ENABLED and token and token.startswith('bs1_'):
+        identity = await studio.check(token)
+        data = {'exp':identity['expires_at']}
+    else:
+        data = decode_token(token) if token else None
 
     expires_at = None
 

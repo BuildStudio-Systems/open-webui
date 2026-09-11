@@ -1,4 +1,5 @@
 from __future__ import annotations
+from open_webui import studio_identity as studio
 
 import asyncio
 import base64
@@ -388,6 +389,12 @@ async def get_current_user(
         request.state.user = user
         return user
 
+    if studio.ENABLED:
+        from open_webui.there_studio import user_by_token
+        user = await user_by_token(token)
+        request.state.user = user
+        return user
+
     # auth by jwt token
     try:
         try:
@@ -468,6 +475,9 @@ async def get_current_user_by_api_key(request, api_key: str):
             detail=ERROR_MESSAGES.INVALID_TOKEN,
         )
 
+    if studio.ENABLED and user.id not in set(__import__('os').environ.get('STUDIO_MACHINE_USER_IDS','').split(',')):
+        raise HTTPException(403,'Human accounts must sign in using the There login page.')
+
     config_values = await Config.get_many(
         'auth.enable_api_keys',
         'user.permissions',
@@ -530,6 +540,12 @@ def get_verified_user(user=Depends(get_current_user)):
 
 async def get_verified_user_by_token(token: str, redis=None):
     """Resolve a verified user from a raw token, for WebSocket handshakes that run outside the HTTP dependency chain."""
+    if studio.ENABLED:
+        from open_webui.there_studio import user_by_token
+        try:
+            return await user_by_token(token)
+        except HTTPException:
+            return None
     decoded = decode_token(token)
     if decoded is None or 'id' not in decoded or not await is_valid_token(decoded, redis):
         return None

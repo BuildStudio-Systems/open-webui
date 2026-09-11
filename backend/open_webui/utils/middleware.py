@@ -64,6 +64,7 @@ from open_webui.routers.pipelines import (
 )
 from open_webui.routers.retrieval import (
     SearchForm,
+    normalize_web_search_queries,
     process_web_search,
 )
 from open_webui.routers.tasks import (
@@ -1610,16 +1611,23 @@ async def chat_web_search_handler(request: Request, form_data: dict, extra_param
         except Exception:
             queries = [response]
 
-        if ENABLE_QUERIES_CACHE:
-            request.state.cached_queries = queries
-
     except Exception:
         log.warning('Web search query generation failed; using the user message')
         queries = [user_message or '']
 
-    # Check if generated queries are empty
-    if len(queries) == 1 and queries[0].strip() == '':
-        queries = [user_message or '']
+    raw_queries = queries
+    try:
+        queries = normalize_web_search_queries(raw_queries)
+    except ValueError:
+        queries = []
+
+    # Preserve the existing fallback for a non-empty but unusable generated
+    # response. An explicit empty query list still means "do not search".
+    if not queries and raw_queries:
+        queries = normalize_web_search_queries([user_message or ''])
+
+    if ENABLE_QUERIES_CACHE:
+        request.state.cached_queries = queries
 
     # Check if queries are not found
     if len(queries) == 0:

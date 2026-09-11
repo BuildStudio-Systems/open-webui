@@ -1,4 +1,5 @@
 from __future__ import annotations
+from open_webui import studio_identity as studio
 
 import asyncio
 import logging
@@ -314,6 +315,9 @@ def get_user_id_from_session_pool(sid):
 async def get_socket_session_user(sid: str) -> dict | None:
     """Session user from this worker's local Socket.IO store; only locally connected sids are ever looked up."""
     try:
+        if studio.ENABLED:
+            try: await studio.check(STUDIO_SOCKET_TOKENS.get(sid))
+            except Exception: return None
         return (await sio.get_session(sid)).get('user')
     except KeyError:
         return None
@@ -402,9 +406,29 @@ async def usage(sid, data):
         }
 
 
+STUDIO_SOCKET_TOKENS = {}
+STUDIO_SOCKET_TASKS = {}
+
+async def studio_watch(sid):
+    try:
+        while sid in STUDIO_SOCKET_TOKENS:
+            await asyncio.sleep(3)
+            await studio.check(STUDIO_SOCKET_TOKENS[sid])
+    except Exception:
+        await sio.disconnect(sid)
+    finally:
+        STUDIO_SOCKET_TOKENS.pop(sid,None)
+        STUDIO_SOCKET_TASKS.pop(sid,None)
+
 @sio.event
 async def connect(sid, environ, auth):
     user = None
+    if studio.ENABLED:
+        if not auth or not isinstance(auth.get('token'),str): return False
+        try: await studio.check(auth['token'])
+        except Exception: return False
+        STUDIO_SOCKET_TOKENS[sid] = auth['token']
+        STUDIO_SOCKET_TASKS[sid] = asyncio.create_task(studio_watch(sid))
     if auth and 'token' in auth:
         scope = (environ or {}).get('asgi.scope') or {}
         fastapi_app = scope.get('app')
@@ -432,6 +456,8 @@ async def connect(sid, environ, auth):
 @sio.on('user-join')
 async def user_join(sid, data):
     auth = data.get('auth')
+    if studio.ENABLED and (not auth or auth.get('token') != STUDIO_SOCKET_TOKENS.get(sid)):
+        return
     if not auth or 'token' not in auth:
         return
 
@@ -925,6 +951,9 @@ async def yjs_awareness_update(sid, data):
 
 @sio.event
 async def disconnect(sid, reason=None):
+    STUDIO_SOCKET_TOKENS.pop(sid,None)
+    task = STUDIO_SOCKET_TASKS.pop(sid,None)
+    if task and task is not asyncio.current_task(): task.cancel()
     if sid in SESSION_POOL:
         del SESSION_POOL[sid]
 

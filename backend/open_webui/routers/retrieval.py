@@ -12,7 +12,7 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Callable, Iterator, Optional, Sequence, Union
+from typing import Any, Callable, Iterator, Optional, Sequence, Union
 from urllib.parse import unquote, urlparse
 
 import tiktoken
@@ -130,18 +130,47 @@ from open_webui.utils.misc import (
     calculate_sha256_string,
     sanitize_text_for_db,
 )
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 log = logging.getLogger(__name__)
 
 TIKTOKEN_DISALLOWED_SPECIAL = ()
 NO_SECONDARY_PERSISTENCE_HEADER = 'x-buildstudio-no-store'
+WEB_SEARCH_MAX_QUERIES = 3
+WEB_SEARCH_MAX_QUERY_CHARACTERS = 512
 NO_STORE_WEB_SEARCH_MAX_CHUNKS = 12
 NO_STORE_WEB_SEARCH_MAX_CHARACTERS = 16_000
 _NO_STORE_BM25_TOKEN_PATTERN = re.compile(
     r'[a-z0-9]+|[^\W\d_]', re.IGNORECASE | re.UNICODE
 )
+
+
+def normalize_web_search_queries(raw_queries: Any) -> list[str]:
+    """Return a bounded, stable set of safe-to-dispatch web search queries."""
+    if not isinstance(raw_queries, (list, tuple)):
+        raise ValueError('queries must be a list')
+
+    normalized_queries: list[str] = []
+    seen: set[str] = set()
+    for raw_query in raw_queries:
+        if not isinstance(raw_query, str):
+            continue
+
+        query = ' '.join(raw_query.split())[:WEB_SEARCH_MAX_QUERY_CHARACTERS].strip()
+        if not query:
+            continue
+
+        dedupe_key = query.casefold()
+        if dedupe_key in seen:
+            continue
+
+        seen.add(dedupe_key)
+        normalized_queries.append(query)
+        if len(normalized_queries) >= WEB_SEARCH_MAX_QUERIES:
+            break
+
+    return normalized_queries
 
 
 def _request_bypasses_web_search_persistence(request: Request) -> bool:
@@ -589,6 +618,11 @@ class ProcessUrlResponse(BaseModel):
 
 class SearchForm(BaseModel):
     queries: list[str]
+
+    @field_validator('queries', mode='before')
+    @classmethod
+    def normalize_queries(cls, value: Any) -> list[str]:
+        return normalize_web_search_queries(value)
 
 
 @router.get('/embedding')
@@ -2944,6 +2978,10 @@ async def process_web_search(request: Request, form_data: SearchForm, user=Depen
             detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
         )
 
+    # Keep this boundary defensive even when an internal caller constructs a
+    # SearchForm without normal Pydantic validation.
+    queries = normalize_web_search_queries(form_data.queries)
+
     urls = []
     result_items = []
 
@@ -2951,7 +2989,7 @@ async def process_web_search(request: Request, form_data: SearchForm, user=Depen
         logging.debug(
             'trying web search: engine=%s query_count=%s',
             config.WEB_SEARCH_ENGINE,
-            len(form_data.queries),
+            len(queries),
         )
 
         # Use semaphore to limit concurrent requests based on WEB_SEARCH_CONCURRENT_REQUESTS
@@ -2972,7 +3010,7 @@ async def process_web_search(request: Request, form_data: SearchForm, user=Depen
                         user,
                     )
 
-            search_tasks = [search_query_with_semaphore(query) for query in form_data.queries]
+            search_tasks = [search_query_with_semaphore(query) for query in queries]
         else:
             # Unlimited parallel execution
             search_tasks = [
@@ -2982,7 +3020,7 @@ async def process_web_search(request: Request, form_data: SearchForm, user=Depen
                     query,
                     user,
                 )
-                for query in form_data.queries
+                for query in queries
             ]
 
         search_results = await asyncio.gather(*search_tasks)
@@ -3052,7 +3090,7 @@ async def process_web_search(request: Request, form_data: SearchForm, user=Depen
                 _select_no_store_web_search_docs,
                 request,
                 docs,
-                form_data.queries,
+                queries,
                 config,
             )
 
@@ -3074,7 +3112,7 @@ async def process_web_search(request: Request, form_data: SearchForm, user=Depen
         else:
             # Create a single collection for all documents
             # Bind the ephemeral collection to its owner so filter_accessible_collections can scope it per-user.
-            collection_name = f'web-search-{user.id}-{calculate_sha256_string("-".join(form_data.queries))}'[:63]
+            collection_name = f'web-search-{user.id}-{calculate_sha256_string("-".join(queries))}'[:63]
 
             try:
                 await run_in_threadpool(

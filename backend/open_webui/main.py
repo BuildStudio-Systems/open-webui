@@ -172,6 +172,9 @@ from open_webui.routers import (
     skills,
     tasks,
     terminals,
+    there,
+    there_knowledge,
+    there_miniprogram_admin,
     tools,
     users,
     utils,
@@ -846,6 +849,13 @@ app.include_router(notes.router, prefix='/api/v1/notes', tags=['notes'])
 app.include_router(models.router, prefix='/api/v1/models', tags=['models'])
 app.include_router(notifications.router, prefix='/api/v1/notifications', tags=['notifications'])
 app.include_router(knowledge.router, prefix='/api/v1/knowledge', tags=['knowledge'])
+app.include_router(there.router, prefix='/api/v1/there', tags=['there'])
+app.include_router(there_knowledge.router, prefix='/api/v1/there', tags=['there'])
+app.include_router(
+    there_miniprogram_admin.router,
+    prefix='/api/v1/there/admin/wechat',
+    tags=['there-admin'],
+)
 app.include_router(prompts.router, prefix='/api/v1/prompts', tags=['prompts'])
 app.include_router(tools.router, prefix='/api/v1/tools', tags=['tools'])
 app.include_router(skills.router, prefix='/api/v1/skills', tags=['skills'])
@@ -3061,3 +3071,8 @@ if os.path.exists(FRONTEND_BUILD_DIR):
     )
 else:
     log.warning(f"Frontend build directory not found at '{FRONTEND_BUILD_DIR}'. Serving API only.")
+
+# Staff identity uses the existing There login page.
+from open_webui.there_studio import StudioMiddleware
+app.add_middleware(StudioMiddleware)
+app.add_middleware(there_miniprogram_admin.AdminWeChatNoStoreMiddleware)

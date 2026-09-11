@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "include": [
+    "src/lib/components/workspace/ThereWiki.svelte",
+    "src/lib/apis/there/index.ts",
+    "src/app.d.ts"
+  ],
+  "exclude": ["node_modules", "build"]
+}

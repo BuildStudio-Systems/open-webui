@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 from types import SimpleNamespace
@@ -43,6 +44,189 @@ def _request(*, no_store: bool):
             "client": ("127.0.0.1", 1),
         }
     )
+
+
+def test_search_form_normalizes_filters_deduplicates_and_caps_queries(open_webui_modules):
+    retrieval, _, _ = open_webui_modules
+    overlong_query = 'x' * (retrieval.WEB_SEARCH_MAX_QUERY_CHARACTERS + 20)
+
+    form = retrieval.SearchForm.model_validate(
+        {
+            'queries': [
+                '  First   query  ',
+                123,
+                '',
+                'first query',
+                'Second\nquery',
+                'Third query',
+                'Fourth query',
+            ]
+        }
+    )
+
+    assert form.queries == ['First query', 'Second query', 'Third query']
+    assert len(form.queries) == retrieval.WEB_SEARCH_MAX_QUERIES
+    assert retrieval.SearchForm(queries=[overlong_query]).queries == [
+        overlong_query[: retrieval.WEB_SEARCH_MAX_QUERY_CHARACTERS]
+    ]
+
+    with pytest.raises(ValueError, match='queries must be a list'):
+        retrieval.SearchForm.model_validate({'queries': 'not-a-query-list'})
+
+
+@pytest.mark.parametrize('concurrent_limit', [0, 2])
+def test_process_web_search_never_dispatches_more_than_three_unique_queries(
+    open_webui_modules, monkeypatch, concurrent_limit
+):
+    retrieval, _, _ = open_webui_modules
+    config = SimpleNamespace(
+        ENABLE_WEB_SEARCH=True,
+        USER_PERMISSIONS={},
+        WEB_SEARCH_ENGINE='test',
+        WEB_SEARCH_CONCURRENT_REQUESTS=concurrent_limit,
+        BYPASS_WEB_SEARCH_WEB_LOADER=True,
+        BYPASS_WEB_SEARCH_EMBEDDING_AND_RETRIEVAL=True,
+    )
+    provider_calls: list[str] = []
+
+    async def fake_config():
+        return config
+
+    async def fake_search(_request, _engine, query, _user):
+        provider_calls.append(query)
+        return [
+            retrieval.SearchResult(
+                link=f'https://example.com/result-{len(provider_calls)}',
+                title=query,
+                snippet=f'Result for {query}',
+            )
+        ]
+
+    monkeypatch.setattr(retrieval, 'get_retrieval_config', fake_config)
+    monkeypatch.setattr(retrieval, 'search_web', fake_search)
+
+    result = asyncio.run(
+        retrieval.process_web_search(
+            _request(no_store=False),
+            retrieval.SearchForm.model_validate(
+                {
+                    'queries': [
+                        ' Alpha   topic ',
+                        None,
+                        'alpha topic',
+                        'Beta topic',
+                        'Gamma topic',
+                        'Delta topic',
+                    ]
+                }
+            ),
+            user=SimpleNamespace(id='mini-user', role='admin'),
+        )
+    )
+
+    assert provider_calls == ['Alpha topic', 'Beta topic', 'Gamma topic']
+    assert len(provider_calls) <= retrieval.WEB_SEARCH_MAX_QUERIES
+    assert result['loaded_count'] == 3
+
+
+def test_generated_web_queries_are_normalized_before_search(open_webui_modules, monkeypatch):
+    retrieval, _, middleware = open_webui_modules
+    captured_queries: list[str] = []
+    emitted: list[dict] = []
+
+    async def fake_generate_queries(*_args, **_kwargs):
+        return {
+            'choices': [
+                {
+                    'message': {
+                        'content': json.dumps(
+                            {
+                                'queries': [
+                                    ' First   query ',
+                                    123,
+                                    'first query',
+                                    'Second query',
+                                    'Third query',
+                                    'Fourth query',
+                                ]
+                            }
+                        )
+                    }
+                }
+            ]
+        }
+
+    async def fake_process_web_search(_request, form_data, user):
+        captured_queries.extend(form_data.queries)
+        return None
+
+    async def emit(event):
+        emitted.append(event)
+
+    monkeypatch.setattr(middleware, 'generate_queries', fake_generate_queries)
+    monkeypatch.setattr(middleware, 'process_web_search', fake_process_web_search)
+
+    form_data = {
+        'model': 'qwen3.8-27b',
+        'messages': [{'role': 'user', 'content': 'ordinary user question'}],
+    }
+    result = asyncio.run(
+        middleware.chat_web_search_handler(
+            _request(no_store=True),
+            form_data,
+            {'__event_emitter__': emit, '__chat_id__': None},
+            SimpleNamespace(id='mini-user', role='admin'),
+        )
+    )
+
+    assert result is form_data
+    assert captured_queries == ['First query', 'Second query', 'Third query']
+    assert len(captured_queries) <= retrieval.WEB_SEARCH_MAX_QUERIES
+    assert next(
+        event['data']['queries']
+        for event in emitted
+        if event['data'].get('action') == 'web_search_queries_generated'
+    ) == captured_queries
+
+
+def test_invalid_generated_web_queries_fall_back_to_user_message(open_webui_modules, monkeypatch):
+    _, _, middleware = open_webui_modules
+    captured_queries: list[str] = []
+
+    async def fake_generate_queries(*_args, **_kwargs):
+        return {
+            'choices': [
+                {
+                    'message': {
+                        'content': json.dumps({'queries': [123, None]})
+                    }
+                }
+            ]
+        }
+
+    async def fake_process_web_search(_request, form_data, user):
+        captured_queries.extend(form_data.queries)
+        return None
+
+    async def emit(_event):
+        return None
+
+    monkeypatch.setattr(middleware, 'generate_queries', fake_generate_queries)
+    monkeypatch.setattr(middleware, 'process_web_search', fake_process_web_search)
+
+    asyncio.run(
+        middleware.chat_web_search_handler(
+            _request(no_store=True),
+            {
+                'model': 'qwen3.8-27b',
+                'messages': [{'role': 'user', 'content': '  Find   JMLR requirements  '}],
+            },
+            {'__event_emitter__': emit, '__chat_id__': None},
+            SimpleNamespace(id='mini-user', role='admin'),
+        )
+    )
+
+    assert captured_queries == ['Find JMLR requirements']
 
 
 def test_request_scoped_no_store_skips_vector_save_but_keeps_search_and_page_content(open_webui_modules, monkeypatch):

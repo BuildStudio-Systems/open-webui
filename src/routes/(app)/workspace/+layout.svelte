@@ -148,6 +148,18 @@
 					<div
 						class="flex min-w-0 mr-1.5 items-center gap-0.5 md:gap-1 scrollbar-none overflow-x-auto w-fit text-center text-sm font-normal rounded-full bg-transparent py-1 touch-auto pointer-events-auto"
 					>
+						<a
+							draggable="false"
+							aria-current={activeWorkspaceSection === 'there' ? 'page' : null}
+							class="min-w-fit px-1 text-sm inline-flex items-center gap-1 {activeWorkspaceSection ===
+							'there'
+								? 'text-gray-900 dark:text-gray-100'
+								: 'text-gray-300 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white'} transition select-none"
+							href="/workspace/there"
+						>
+							<span>THERE</span>
+						</a>
+
 						{#if $user?.role === 'admin' || $user?.permissions?.workspace?.models}
 							<a
 								draggable="false"

@@ -11,6 +11,8 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.pool import NullPool
 
 CHAT_OLDER = "11111111-1111-4111-8111-111111111111"
 CHAT_NEWER = "22222222-2222-4222-8222-222222222222"
@@ -162,12 +164,41 @@ def sensitive_text(value) -> str:
     return json.dumps(value, ensure_ascii=False).lower()
 
 
+def test_engine(path: Path):
+    return create_engine(f"sqlite:///{path}", poolclass=NullPool)
+
+
+test_engine.__test__ = False
+
+
+def test_default_store_rejects_sqlite_even_with_legacy_path(tmp_path, monkeypatch):
+    from open_webui.there_integration import miniprogram_chats as storage
+
+    path = tmp_path / "legacy.sqlite"
+    create_store(path)
+    monkeypatch.setenv("BUILDSTUDIO_MINIPROGRAM_DATABASE_PATH", str(path))
+    monkeypatch.setattr(storage, "_primary_engine", lambda: test_engine(path))
+    with pytest.raises(storage.MiniProgramChatStoreError, match="storage is unavailable"):
+        storage.MiniProgramChatStore(policy_version=POLICY_VERSION).list_chats()
+
+
+def test_default_store_uses_primary_engine_without_test_override(tmp_path, monkeypatch):
+    from open_webui.there_integration import miniprogram_chats as storage
+
+    primary = SimpleNamespace(dialect=SimpleNamespace(name="postgresql"))
+    monkeypatch.setattr(storage, "_primary_engine", lambda: primary)
+    monkeypatch.setenv("BUILDSTUDIO_MINIPROGRAM_DATABASE_PATH", str(tmp_path / "ignored.sqlite"))
+    store = storage.MiniProgramChatStore(policy_version=POLICY_VERSION)
+    assert store._engine is primary
+    assert not store._injected_test_engine
+
+
 def test_store_filters_identity_provenance_and_list_content(tmp_path):
     from open_webui.there_integration.miniprogram_chats import MiniProgramChatStore
 
     database = tmp_path / "mini.sqlite"
     create_store(database)
-    store = MiniProgramChatStore(database, policy_version=POLICY_VERSION)
+    store = MiniProgramChatStore(_engine=test_engine(database), policy_version=POLICY_VERSION)
     first = store.list_chats(limit=1)
     assert len(first["items"]) == 1
     assert first["items"][0]["id"] == CHAT_NEWER
@@ -199,7 +230,7 @@ def test_detail_is_bounded_to_wechat_messages_and_safe_sources(tmp_path):
 
     database = tmp_path / "mini.sqlite"
     create_store(database)
-    store = MiniProgramChatStore(database, policy_version=POLICY_VERSION)
+    store = MiniProgramChatStore(_engine=test_engine(database), policy_version=POLICY_VERSION)
     metadata = store.get_chat(CHAT_OLDER)
     assert metadata and metadata["message_count"] == 2
     page = store.list_messages(CHAT_OLDER, limit=1)
@@ -221,7 +252,7 @@ def test_deleted_chat_immediately_disappears_from_admin_view(tmp_path):
 
     database = tmp_path / "mini.sqlite"
     create_store(database)
-    store = MiniProgramChatStore(database, policy_version=POLICY_VERSION)
+    store = MiniProgramChatStore(_engine=test_engine(database), policy_version=POLICY_VERSION)
     assert store.get_chat(CHAT_OLDER)
     connection = sqlite3.connect(database)
     connection.execute("PRAGMA foreign_keys = ON")
@@ -240,13 +271,13 @@ def test_store_is_scoped_to_the_configured_policy_version(tmp_path):
 
     database = tmp_path / "mini.sqlite"
     create_store(database)
-    stale = MiniProgramChatStore(database, policy_version="2026-09-03")
+    stale = MiniProgramChatStore(_engine=test_engine(database), policy_version="2026-09-03")
     assert [item["id"] for item in stale.list_chats()["items"]] == [CHAT_OLD_POLICY]
     assert stale.get_chat(CHAT_OLDER) is None
     assert stale.list_messages(CHAT_OLDER) is None
 
     with pytest.raises(MiniProgramChatStoreError, match="policy is unavailable"):
-        MiniProgramChatStore(database, policy_version="").list_chats()
+        MiniProgramChatStore(_engine=test_engine(database), policy_version="").list_chats()
 
 
 def test_invalid_cursor_and_schema_fail_closed(tmp_path):
@@ -258,13 +289,13 @@ def test_invalid_cursor_and_schema_fail_closed(tmp_path):
     database = tmp_path / "mini.sqlite"
     create_store(database)
     with pytest.raises(ValueError, match="cursor is invalid"):
-        MiniProgramChatStore(database, policy_version=POLICY_VERSION).list_chats(cursor="not-base64!")
+        MiniProgramChatStore(_engine=test_engine(database), policy_version=POLICY_VERSION).list_chats(cursor="not-base64!")
     broken = tmp_path / "broken.sqlite"
     sqlite3.connect(broken).close()
     if os.name != "nt":
         broken.chmod(0o600)
     with pytest.raises(MiniProgramChatStoreError, match="schema is invalid"):
-        MiniProgramChatStore(broken, policy_version=POLICY_VERSION).list_chats()
+        MiniProgramChatStore(_engine=test_engine(broken), policy_version=POLICY_VERSION).list_chats()
 
     corrupt = tmp_path / "corrupt.sqlite"
     create_store(corrupt)
@@ -276,7 +307,7 @@ def test_invalid_cursor_and_schema_fail_closed(tmp_path):
     connection.commit()
     connection.close()
     with pytest.raises(MiniProgramChatStoreError, match="invalid data"):
-        MiniProgramChatStore(corrupt, policy_version=POLICY_VERSION).list_chats()
+        MiniProgramChatStore(_engine=test_engine(corrupt), policy_version=POLICY_VERSION).list_chats()
 
 
 @pytest.fixture(scope="module")
@@ -304,7 +335,10 @@ def test_router_requires_admin_feature_and_never_audits_content(router_module, m
 
     database = tmp_path / "mini.sqlite"
     create_store(database)
-    monkeypatch.setenv("BUILDSTUDIO_MINIPROGRAM_DATABASE_PATH", str(database))
+    from open_webui.there_integration.miniprogram_chats import MiniProgramChatStore
+
+    engine = test_engine(database)
+    monkeypatch.setattr(router_module, "MiniProgramChatStore", lambda: MiniProgramChatStore(_engine=engine))
     monkeypatch.setenv("BUILDSTUDIO_MINIPROGRAM_POLICY_VERSION", POLICY_VERSION)
     audits = []
     monkeypatch.setattr(router_module, "_write_audit", lambda *args, **kwargs: audits.append(kwargs))

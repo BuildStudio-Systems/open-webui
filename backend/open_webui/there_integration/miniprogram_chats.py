@@ -1,4 +1,4 @@
-"""Read-only, privacy-bounded access to the canonical Mini Program chat store."""
+"""Read-only, privacy-bounded access to Mini Program chats in THERE PostgreSQL."""
 
 from __future__ import annotations
 
@@ -8,18 +8,23 @@ import ipaddress
 import json
 import os
 import re
-import sqlite3
-from contextlib import closing
-from pathlib import Path
-from typing import Any
+from contextlib import contextmanager
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit, urlunsplit
 from uuid import UUID
 
-DATABASE_PATH_ENV = "BUILDSTUDIO_MINIPROGRAM_DATABASE_PATH"
-DATABASE_URL_FILE_ENV = "BUILDSTUDIO_MINIPROGRAM_DATABASE_URL_FILE"
-DATABASE_SCHEMA_ENV = "BUILDSTUDIO_MINIPROGRAM_DATABASE_SCHEMA"
-DEFAULT_DATABASE_SCHEMA = "there_miniprogram"
+from sqlalchemy import inspect, text
+from sqlalchemy.exc import SQLAlchemyError
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
+    from sqlalchemy.engine import Connection, Engine
+
 POLICY_VERSION_ENV = "BUILDSTUDIO_MINIPROGRAM_POLICY_VERSION"
+POSTGRES_SCHEMA = "there_miniprogram"
+REQUIRED_SCHEMA_VERSION = 1
+REQUIRED_SCHEMA_CHECKSUM = "deb322343dd480ee65889122a41267aa2e3f4dfdd1fcf7fc6f22f5ca2a498f33"
 MAX_PAGE_SIZE = 100
 DEFAULT_PAGE_SIZE = 50
 MAX_CURSOR_LENGTH = 256
@@ -41,9 +46,10 @@ BLOCKED_HOST_SUFFIXES = {
 }
 HOST_LABEL_PATTERN = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
 REQUIRED_COLUMNS = {
-    "user": {"id"},
-    "policy_acceptance": {"user_id", "policy_version", "accepted_at"},
-    "chat": {
+    "schema_version": {"version", "checksum", "applied_at"},
+    "users": {"id"},
+    "policy_acceptances": {"user_id", "policy_version", "accepted_at"},
+    "chats": {
         "id",
         "user_id",
         "policy_version",
@@ -53,21 +59,22 @@ REQUIRED_COLUMNS = {
         "created_at",
         "updated_at",
     },
-    "message": {
+    "messages": {
         "id",
+        "sequence",
         "chat_id",
         "role",
         "content",
-        "sources_json",
+        "sources",
         "review_provenance",
         "created_at",
     },
-    "content_report": {"id", "chat_id"},
+    "content_reports": {"id", "chat_id"},
 }
 
 
 class MiniProgramChatStoreError(RuntimeError):
-    """A bounded error which never includes paths, content, or SQLite details."""
+    """A bounded error which never includes content or database details."""
 
 
 def _canonical_uuid(value: str, *, field: str) -> str:
@@ -103,7 +110,7 @@ def _encode_cursor(values: list[Any]) -> str:
     return base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
 
 
-def _decode_cursor(cursor: str | None, *, kind: str) -> tuple[int, str | int] | None:
+def _decode_cursor(cursor: str | None, *, identifier: str) -> tuple[int, str | int] | None:
     if not cursor:
         return None
     if len(cursor) > MAX_CURSOR_LENGTH:
@@ -118,9 +125,11 @@ def _decode_cursor(cursor: str | None, *, kind: str) -> tuple[int, str | int] | 
     timestamp = values[0]
     if not isinstance(timestamp, int) or timestamp < 0:
         raise ValueError("cursor is invalid")
-    if kind == "chat":
+    if identifier == "uuid":
         return timestamp, _canonical_uuid(values[1], field="cursor")
-    return timestamp, _canonical_uuid(values[1], field="cursor")
+    if identifier == "integer" and isinstance(values[1], int) and values[1] > 0:
+        return timestamp, values[1]
+    raise ValueError("cursor is invalid")
 
 
 def _page_size(limit: int | None) -> int:
@@ -132,13 +141,13 @@ def _page_size(limit: int | None) -> int:
 
 
 def _account_reference(user_id: str) -> str:
-    digest = hashlib.sha256(f"buildstudio-there-mini-account-v1:{user_id}".encode("utf-8")).hexdigest()
+    digest = hashlib.sha256(f"buildstudio-there-mini-account-v1:{user_id}".encode()).hexdigest()
     return f"wx-{digest[:12]}"
 
 
 def _safe_text(value: Any, maximum: int) -> str:
-    text = str(value or "")[:maximum]
-    return "".join(character for character in text if character in "\n\r\t" or ord(character) >= 32)
+    text_value = str(value or "")[:maximum]
+    return "".join(character for character in text_value if character in "\n\r\t" or ord(character) >= 32)
 
 
 def _public_hostname(value: str) -> str | None:
@@ -168,13 +177,13 @@ def _public_hostname(value: str) -> str | None:
 
 
 def _safe_sources(value: Any) -> list[dict[str, str]]:
-    if isinstance(value, (list, dict)):
-        source_rows = value
-    else:
+    if isinstance(value, str):
         try:
             source_rows = json.loads(value or "[]")
-        except (TypeError, json.JSONDecodeError):
+        except json.JSONDecodeError:
             return []
+    else:
+        source_rows = value
     if not isinstance(source_rows, list):
         return []
     result: list[dict[str, str]] = []
@@ -207,25 +216,24 @@ def _safe_sources(value: Any) -> list[dict[str, str]]:
     return result
 
 
-class MiniProgramChatStore:
-    """Open the live Mini Program store in read-only mode for each query.
+def _primary_engine() -> Engine:
+    # Import lazily so pure store tests do not initialize the whole web backend.
+    from open_webui.internal.db import engine
 
-    Production uses the shared THERE PostgreSQL database and an isolated
-    ``there_miniprogram`` schema.  A path-backed SQLite mode remains available
-    solely for local development and the deterministic unit-test fixtures.
-    """
+    return engine
+
+
+class MiniProgramChatStore:
+    """Run bounded SELECTs against the Mini Program schema on the main DB pool."""
 
     def __init__(
         self,
-        path: Path | str | None = None,
         *,
         policy_version: str | None = None,
+        _engine: Engine | None = None,
     ):
-        configured = path if path is not None else os.getenv(DATABASE_PATH_ENV, "")
-        self.path = Path(configured).expanduser() if configured else None
-        configured_url = os.getenv(DATABASE_URL_FILE_ENV, "").strip() or os.getenv("MINIPROGRAM_DATABASE_URL_FILE", "").strip()
-        self.database_url_file = Path(configured_url).expanduser() if configured_url else None
-        self.database_schema = (os.getenv(DATABASE_SCHEMA_ENV, "").strip() or os.getenv("MINIPROGRAM_DATABASE_SCHEMA", DEFAULT_DATABASE_SCHEMA).strip())
+        self._engine = _engine if _engine is not None else _primary_engine()
+        self._injected_test_engine = _engine is not None
         self.policy_version = (
             policy_version if policy_version is not None else os.getenv(POLICY_VERSION_ENV, "")
         ).strip()
@@ -235,127 +243,122 @@ class MiniProgramChatStore:
             raise MiniProgramChatStoreError("Mini Program chat storage policy is unavailable")
         return self.policy_version
 
-    def _path(self) -> Path:
-        path = self.path
-        if path is None or not path.is_absolute():
+    @property
+    def _is_postgresql(self) -> bool:
+        return self._engine.dialect.name == "postgresql"
+
+    def _table(self, name: str) -> str:
+        if name not in REQUIRED_COLUMNS:
+            raise MiniProgramChatStoreError("Mini Program chat storage schema is invalid")
+        return f'"{POSTGRES_SCHEMA}"."{name}"' if self._is_postgresql else f'"{name}"'
+
+    @contextmanager
+    def _connect(self) -> Iterator[Connection]:
+        if not self._is_postgresql and not self._injected_test_engine:
             raise MiniProgramChatStoreError("Mini Program chat storage is unavailable")
         try:
-            if path.is_symlink() or not path.is_file():
-                raise MiniProgramChatStoreError("Mini Program chat storage is unavailable")
-            if os.name != "nt" and path.stat().st_mode & 0o077:
-                raise MiniProgramChatStoreError("Mini Program chat storage permissions are unsafe")
-            return path.resolve(strict=True)
-        except OSError:
-            raise MiniProgramChatStoreError("Mini Program chat storage is unavailable") from None
-
-    def _connect(self) -> sqlite3.Connection:
-        if self.database_url_file is not None:
-            path = self.database_url_file
-            if not path.is_absolute() or path.is_symlink() or not path.is_file():
-                raise MiniProgramChatStoreError("Mini Program chat storage is unavailable")
-            try:
-                if os.name != "nt" and path.stat().st_mode & 0o077:
-                    raise MiniProgramChatStoreError("Mini Program chat storage permissions are unsafe")
-                lines = path.read_text(encoding="utf-8").splitlines()
-                if len(lines) != 1 or not lines[0].strip().startswith(("postgresql://", "postgres://")):
-                    raise MiniProgramChatStoreError("Mini Program chat storage is unavailable")
-                import psycopg
-                from psycopg.rows import dict_row
-
-                connection = psycopg.connect(lines[0].strip(), row_factory=dict_row)
-                safe_schema = self.database_schema.replace('"', '""')
-                connection.execute(f'SET search_path TO "{safe_schema}"')
-                self._validate_postgres_schema(connection)
-                return connection
-            except MiniProgramChatStoreError:
-                raise
-            except Exception:
-                raise MiniProgramChatStoreError("Mini Program chat storage is unavailable") from None
-        try:
-            connection = sqlite3.connect(
-                self._path().as_uri() + "?mode=ro",
-                uri=True,
-                timeout=3,
-            )
-            connection.row_factory = sqlite3.Row
-            connection.execute("PRAGMA query_only = ON")
-            connection.execute("PRAGMA foreign_keys = ON")
-            connection.execute("PRAGMA busy_timeout = 3000")
-            self._validate_schema(connection)
-            return connection
+            with self._engine.connect() as connection:
+                transaction = connection.begin()
+                try:
+                    if self._is_postgresql:
+                        # This must be the first statement in the transaction. It
+                        # makes the admin reader fail at the database boundary if
+                        # future code accidentally attempts a write.
+                        connection.exec_driver_sql("SET TRANSACTION READ ONLY")
+                    self._validate_schema(connection)
+                    yield connection
+                finally:
+                    transaction.rollback()
         except MiniProgramChatStoreError:
             raise
-        except sqlite3.Error:
+        except SQLAlchemyError:
             raise MiniProgramChatStoreError("Mini Program chat storage is unavailable") from None
 
-    @staticmethod
-    def _validate_postgres_schema(connection) -> None:
-        required = set(REQUIRED_COLUMNS)
-        rows = connection.execute(
-            "SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema()"
-        ).fetchall()
-        if not required.issubset({str(row["table_name"]) for row in rows}):
+    def _validate_schema(self, connection: Connection) -> None:
+        if self._is_postgresql:
+            rows = connection.execute(
+                text("""
+                    SELECT table_name, column_name
+                    FROM information_schema.columns
+                    WHERE table_schema = :schema
+                      AND table_name IN (
+                          'schema_version', 'users', 'policy_acceptances',
+                          'chats', 'messages', 'content_reports'
+                      )
+                    """),
+                {"schema": POSTGRES_SCHEMA},
+            ).mappings()
+            available: dict[str, set[str]] = {}
+            for row in rows:
+                available.setdefault(str(row["table_name"]), set()).add(str(row["column_name"]))
+        else:
+            inspector = inspect(connection)
+            available = {
+                table: {str(column["name"]) for column in inspector.get_columns(table)}
+                for table in REQUIRED_COLUMNS
+                if inspector.has_table(table)
+            }
+        if any(not required.issubset(available.get(table, set())) for table, required in REQUIRED_COLUMNS.items()):
+            raise MiniProgramChatStoreError("Mini Program chat storage schema is invalid")
+        schema_row = (
+            connection.execute(
+                text(f"SELECT version, checksum FROM {self._table('schema_version')} " "ORDER BY version DESC LIMIT 1")
+            )
+            .mappings()
+            .first()
+        )
+        if (
+            not schema_row
+            or schema_row["version"] != REQUIRED_SCHEMA_VERSION
+            or schema_row["checksum"] != REQUIRED_SCHEMA_CHECKSUM
+        ):
             raise MiniProgramChatStoreError("Mini Program chat storage schema is invalid")
 
-    @staticmethod
-    def _execute(connection, query: str, params=()):
-        return connection.execute(query.replace("?", "%s"), params)
-
-    @staticmethod
-    def _validate_schema(connection: sqlite3.Connection) -> None:
-        for table, required in REQUIRED_COLUMNS.items():
-            try:
-                columns = {str(row["name"]) for row in connection.execute(f'PRAGMA table_info("{table}")').fetchall()}
-            except sqlite3.Error:
-                raise MiniProgramChatStoreError("Mini Program chat storage schema is invalid") from None
-            if not required.issubset(columns):
-                raise MiniProgramChatStoreError("Mini Program chat storage schema is invalid")
+    def _identifier_parameter(self, value: str) -> UUID | str:
+        return UUID(value) if self._is_postgresql else value
 
     def list_chats(self, *, cursor: str | None = None, limit: int | None = None) -> dict[str, Any]:
         page_size = _page_size(limit)
-        boundary = _decode_cursor(cursor, kind="chat")
+        boundary = _decode_cursor(cursor, identifier="uuid")
         policy_version = self._policy_version()
-        where = "c.review_provenance = 'wechat' AND c.policy_version = ?"
-        parameters: list[Any] = [policy_version, policy_version]
+        chats = self._table("chats")
+        messages = self._table("messages")
+        reports = self._table("content_reports")
+        acceptances = self._table("policy_acceptances")
+        boundary_sql = ""
+        parameters: dict[str, Any] = {"policy_version": policy_version, "row_limit": page_size + 1}
         if boundary:
-            where += " AND (c.updated_at < ? OR (c.updated_at = ? AND c.id < ?))"
-            parameters.extend((boundary[0], boundary[0], boundary[1]))
-        parameters.append(page_size + 1)
-        query = f"""
+            boundary_sql = " AND (c.updated_at < :cursor_time OR (c.updated_at = :cursor_time AND c.id < :cursor_id))"
+            parameters.update(cursor_time=boundary[0], cursor_id=self._identifier_parameter(boundary[1]))
+        query = text(f"""
             SELECT c.id, c.user_id, c.model, c.thinking_mode,
                    c.created_at, c.updated_at,
-                   (SELECT COUNT(*) FROM message m
+                   (SELECT COUNT(*) FROM {messages} m
                     WHERE m.chat_id = c.id AND m.review_provenance = 'wechat'
                       AND m.role IN ('user', 'assistant')) AS message_count,
-                   (SELECT COUNT(*) FROM message m
+                   (SELECT COUNT(*) FROM {messages} m
                     WHERE m.chat_id = c.id AND m.review_provenance = 'wechat'
                       AND m.role = 'user') AS turn_count,
-                   (SELECT m.role FROM message m
+                   (SELECT m.role FROM {messages} m
                     WHERE m.chat_id = c.id AND m.review_provenance = 'wechat'
                       AND m.role IN ('user', 'assistant')
-                    ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS last_role,
-                   (SELECT COUNT(*) FROM content_report r WHERE r.chat_id = c.id) AS report_count
-            FROM chat c
-            JOIN policy_acceptance p
-              ON p.user_id = c.user_id AND p.policy_version = ?
+                    ORDER BY m.created_at DESC, m.sequence DESC LIMIT 1) AS last_role,
+                   (SELECT COUNT(*) FROM {reports} r WHERE r.chat_id = c.id) AS report_count
+            FROM {chats} c
+            JOIN {acceptances} p
+              ON p.user_id = c.user_id AND p.policy_version = :policy_version
              AND p.accepted_at > 0
-            WHERE {where}
+            WHERE c.review_provenance = 'wechat' AND c.policy_version = :policy_version{boundary_sql}
             ORDER BY c.updated_at DESC, c.id DESC
-            LIMIT ?
-        """
-        try:
-            with closing(self._connect()) as connection:
-                rows = self._execute(connection, query, parameters).fetchall() if self.database_url_file is not None else connection.execute(query, parameters).fetchall()
-        except MiniProgramChatStoreError:
-            raise
-        except Exception:
-            raise MiniProgramChatStoreError("Mini Program chat storage is unavailable") from None
+            LIMIT :row_limit
+            """)
+        with self._connect() as connection:
+            rows = connection.execute(query, parameters).mappings().all()
 
         has_more = len(rows) > page_size
         visible = rows[:page_size]
         items = []
         for row in visible:
-            message_count = _database_integer(row["message_count"] or 0)
             items.append(
                 {
                     "id": _database_uuid(row["id"]),
@@ -364,7 +367,7 @@ class MiniProgramChatStore:
                     "thinking_mode": _safe_text(row["thinking_mode"], 16),
                     "created_at": _database_integer(row["created_at"]),
                     "updated_at": _database_integer(row["updated_at"]),
-                    "message_count": message_count,
+                    "message_count": _database_integer(row["message_count"] or 0),
                     "turn_count": _database_integer(row["turn_count"] or 0),
                     "report_count": _database_integer(row["report_count"] or 0),
                     "state": "completed" if row["last_role"] == "assistant" else "incomplete",
@@ -378,35 +381,41 @@ class MiniProgramChatStore:
 
     def get_chat(self, chat_id: str) -> dict[str, Any] | None:
         canonical_id = _canonical_uuid(chat_id, field="chat_id")
-        try:
-            with closing(self._connect()) as connection:
-                query = """
-                    SELECT c.id, c.user_id, c.model, c.thinking_mode,
-                           c.created_at, c.updated_at,
-                           (SELECT COUNT(*) FROM message m
-                            WHERE m.chat_id = c.id AND m.review_provenance = 'wechat'
-                              AND m.role IN ('user', 'assistant')) AS message_count,
-                           (SELECT COUNT(*) FROM message m
-                            WHERE m.chat_id = c.id AND m.review_provenance = 'wechat'
-                              AND m.role = 'user') AS turn_count,
-                    (SELECT m.role FROM message m
-                            WHERE m.chat_id = c.id AND m.review_provenance = 'wechat'
-                              AND m.role IN ('user', 'assistant')
-                            ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS last_role,
-                           (SELECT COUNT(*) FROM content_report r WHERE r.chat_id = c.id) AS report_count
-                    FROM chat c
-                    JOIN policy_acceptance p
-                      ON p.user_id = c.user_id AND p.policy_version = ?
-                     AND p.accepted_at > 0
-                    WHERE c.id = ? AND c.review_provenance = 'wechat'
-                    AND c.policy_version = ?
-                """
-                params = (self._policy_version(), canonical_id, self._policy_version())
-                row = self._execute(connection, query, params).fetchone() if self.database_url_file is not None else connection.execute(query, params).fetchone()
-        except MiniProgramChatStoreError:
-            raise
-        except Exception:
-            raise MiniProgramChatStoreError("Mini Program chat storage is unavailable") from None
+        policy_version = self._policy_version()
+        chats = self._table("chats")
+        messages = self._table("messages")
+        reports = self._table("content_reports")
+        acceptances = self._table("policy_acceptances")
+        query = text(f"""
+            SELECT c.id, c.user_id, c.model, c.thinking_mode,
+                   c.created_at, c.updated_at,
+                   (SELECT COUNT(*) FROM {messages} m
+                    WHERE m.chat_id = c.id AND m.review_provenance = 'wechat'
+                      AND m.role IN ('user', 'assistant')) AS message_count,
+                   (SELECT COUNT(*) FROM {messages} m
+                    WHERE m.chat_id = c.id AND m.review_provenance = 'wechat'
+                      AND m.role = 'user') AS turn_count,
+                   (SELECT m.role FROM {messages} m
+                    WHERE m.chat_id = c.id AND m.review_provenance = 'wechat'
+                      AND m.role IN ('user', 'assistant')
+                    ORDER BY m.created_at DESC, m.sequence DESC LIMIT 1) AS last_role,
+                   (SELECT COUNT(*) FROM {reports} r WHERE r.chat_id = c.id) AS report_count
+            FROM {chats} c
+            JOIN {acceptances} p
+              ON p.user_id = c.user_id AND p.policy_version = :policy_version
+             AND p.accepted_at > 0
+            WHERE c.id = :chat_id AND c.review_provenance = 'wechat'
+              AND c.policy_version = :policy_version
+            """)
+        with self._connect() as connection:
+            row = (
+                connection.execute(
+                    query,
+                    {"policy_version": policy_version, "chat_id": self._identifier_parameter(canonical_id)},
+                )
+                .mappings()
+                .first()
+            )
         if not row:
             return None
         return {
@@ -431,42 +440,47 @@ class MiniProgramChatStore:
     ) -> dict[str, Any] | None:
         canonical_id = _canonical_uuid(chat_id, field="chat_id")
         page_size = _page_size(limit)
-        boundary = _decode_cursor(cursor, kind="message")
-        parameters: list[Any] = [canonical_id]
+        boundary = _decode_cursor(cursor, identifier="integer")
+        policy_version = self._policy_version()
+        chats = self._table("chats")
+        messages = self._table("messages")
+        acceptances = self._table("policy_acceptances")
         boundary_sql = ""
+        parameters: dict[str, Any] = {
+            "chat_id": self._identifier_parameter(canonical_id),
+            "row_limit": page_size + 1,
+        }
         if boundary:
-            boundary_sql = " AND (m.created_at > ? OR (m.created_at = ? AND m.id > ?))"
-            parameters.extend((boundary[0], boundary[0], boundary[1]))
-        parameters.append(page_size + 1)
-        try:
-            with closing(self._connect()) as connection:
-                exists_query = """
-                    SELECT 1
-                    FROM chat c
-                    JOIN policy_acceptance p
-                      ON p.user_id = c.user_id AND p.policy_version = ?
-                     AND p.accepted_at > 0
-                    WHERE c.id = ? AND c.review_provenance = 'wechat'
-                      AND c.policy_version = ?
-                """
-                exists_params = (self._policy_version(), canonical_id, self._policy_version())
-                exists = self._execute(connection, exists_query, exists_params).fetchone() if self.database_url_file is not None else connection.execute(exists_query, exists_params).fetchone()
-                if not exists:
-                    return None
-                query = f"""
-                    SELECT m.id, m.role, m.content,
-                           m.sources_json, m.created_at
-                    FROM message m
-                    WHERE m.chat_id = ? AND m.review_provenance = 'wechat'
-                      AND m.role IN ('user', 'assistant'){boundary_sql}
-                    ORDER BY m.created_at ASC, m.id ASC
-                    LIMIT ?
-                    """
-                rows = self._execute(connection, query, parameters).fetchall() if self.database_url_file is not None else connection.execute(query, parameters).fetchall()
-        except MiniProgramChatStoreError:
-            raise
-        except Exception:
-            raise MiniProgramChatStoreError("Mini Program chat storage is unavailable") from None
+            boundary_sql = (
+                " AND (m.created_at > :cursor_time OR (m.created_at = :cursor_time AND m.sequence > :cursor_sequence))"
+            )
+            parameters.update(cursor_time=boundary[0], cursor_sequence=boundary[1])
+        exists_query = text(f"""
+            SELECT 1
+            FROM {chats} c
+            JOIN {acceptances} p
+              ON p.user_id = c.user_id AND p.policy_version = :policy_version
+             AND p.accepted_at > 0
+            WHERE c.id = :chat_id AND c.review_provenance = 'wechat'
+              AND c.policy_version = :policy_version
+            """)
+        messages_query = text(f"""
+            SELECT m.sequence AS message_order, m.id, m.role, m.content,
+                   m.sources, m.created_at
+            FROM {messages} m
+            WHERE m.chat_id = :chat_id AND m.review_provenance = 'wechat'
+              AND m.role IN ('user', 'assistant'){boundary_sql}
+            ORDER BY m.created_at ASC, m.sequence ASC
+            LIMIT :row_limit
+            """)
+        with self._connect() as connection:
+            exists = connection.execute(
+                exists_query,
+                {"policy_version": policy_version, "chat_id": self._identifier_parameter(canonical_id)},
+            ).first()
+            if not exists:
+                return None
+            rows = connection.execute(messages_query, parameters).mappings().all()
 
         has_more = len(rows) > page_size
         visible = rows[:page_size]
@@ -475,7 +489,7 @@ class MiniProgramChatStore:
                 "id": _database_uuid(row["id"]),
                 "role": str(row["role"]),
                 "content": _safe_text(row["content"], 20_000),
-                "sources": _safe_sources(row["sources_json"]),
+                "sources": _safe_sources(row["sources"]),
                 "created_at": _database_integer(row["created_at"]),
             }
             for row in visible
@@ -486,7 +500,7 @@ class MiniProgramChatStore:
             next_cursor = _encode_cursor(
                 [
                     _database_integer(last["created_at"]),
-                    _database_uuid(last["id"]),
+                    _database_integer(last["message_order"]),
                 ]
             )
         return {"items": items, "next_cursor": next_cursor}

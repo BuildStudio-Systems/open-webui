@@ -27,46 +27,53 @@ def create_store(path: Path) -> None:
     connection = sqlite3.connect(path)
     connection.executescript("""
         PRAGMA foreign_keys = ON;
-        CREATE TABLE user (
+        CREATE TABLE schema_version (
+            version INTEGER PRIMARY KEY, checksum TEXT NOT NULL, applied_at INTEGER NOT NULL
+        );
+        CREATE TABLE users (
             id TEXT PRIMARY KEY, openid TEXT NOT NULL UNIQUE,
             display_name TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
         );
-        CREATE TABLE policy_acceptance (
-            user_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
+        CREATE TABLE policy_acceptances (
+            user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
             policy_version TEXT NOT NULL, accepted_at INTEGER NOT NULL,
             PRIMARY KEY(user_id, policy_version)
         );
-        CREATE TABLE chat (
-            id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
-            policy_version TEXT NOT NULL, title TEXT NOT NULL, model TEXT NOT NULL, thinking_mode TEXT NOT NULL,
+        CREATE TABLE chats (
+            id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            policy_version TEXT, title TEXT NOT NULL, model TEXT NOT NULL, thinking_mode TEXT NOT NULL,
             review_provenance TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
         );
-        CREATE TABLE message (
-            id TEXT PRIMARY KEY, chat_id TEXT NOT NULL REFERENCES chat(id) ON DELETE CASCADE,
-            role TEXT NOT NULL, content TEXT NOT NULL, sources_json TEXT NOT NULL,
+        CREATE TABLE messages (
+            id TEXT PRIMARY KEY, sequence INTEGER NOT NULL, chat_id TEXT NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+            role TEXT NOT NULL, content TEXT NOT NULL, sources TEXT NOT NULL,
             review_provenance TEXT NOT NULL, created_at INTEGER NOT NULL
         );
-        CREATE TABLE content_report (
-            id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
-            chat_id TEXT NOT NULL REFERENCES chat(id) ON DELETE CASCADE,
-            message_id TEXT NOT NULL REFERENCES message(id) ON DELETE CASCADE,
+        CREATE TABLE content_reports (
+            id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            chat_id TEXT NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+            message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
             reason TEXT NOT NULL, created_at INTEGER NOT NULL
         );
         """)
     connection.execute(
-        "INSERT INTO user VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO schema_version VALUES (?, ?, ?)",
+        (1, "deb322343dd480ee65889122a41267aa2e3f4dfdd1fcf7fc6f22f5ca2a498f33", 1),
+    )
+    connection.execute(
+        "INSERT INTO users VALUES (?, ?, ?, ?, ?)",
         (USER_ID, "secret-openid-must-never-leave", "There User", 10, 10),
     )
     connection.execute(
-        "INSERT INTO policy_acceptance VALUES (?, ?, ?)",
+        "INSERT INTO policy_acceptances VALUES (?, ?, ?)",
         (USER_ID, POLICY_VERSION, 10),
     )
     connection.execute(
-        "INSERT INTO policy_acceptance VALUES (?, ?, ?)",
+        "INSERT INTO policy_acceptances VALUES (?, ?, ?)",
         (USER_ID, OLD_POLICY_VERSION, 9),
     )
     connection.execute(
-        "INSERT INTO user VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO users VALUES (?, ?, ?, ?, ?)",
         (
             USER_UNCONSENTED,
             "unconsented-openid-must-never-leave",
@@ -82,11 +89,11 @@ def create_store(path: Path) -> None:
         (CHAT_OLD_POLICY, OLD_POLICY_VERSION, "old-policy private question", "there-3.8", "off", "wechat", 55, 65),
     ):
         connection.execute(
-            "INSERT INTO chat VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO chats VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (row[0], USER_ID, *row[1:]),
         )
     connection.execute(
-        "INSERT INTO chat VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO chats VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             CHAT_UNCONSENTED,
             USER_UNCONSENTED,
@@ -100,9 +107,10 @@ def create_store(path: Path) -> None:
         ),
     )
     messages = (
-        ("a0000000-0000-4000-8000-000000000001", CHAT_OLDER, "user", "Question one", "[]", "wechat", 11),
+        ("a0000000-0000-4000-8000-000000000001", 1, CHAT_OLDER, "user", "Question one", "[]", "wechat", 11),
         (
             "a0000000-0000-4000-8000-000000000002",
+            2,
             CHAT_OLDER,
             "assistant",
             "Answer one <script>alert(1)</script>",
@@ -128,13 +136,13 @@ def create_store(path: Path) -> None:
             "wechat",
             12,
         ),
-        ("a0000000-0000-4000-8000-000000000003", CHAT_NEWER, "user", "Pending question", "[]", "wechat", 31),
-        ("a0000000-0000-4000-8000-000000000004", CHAT_NEWER, "assistant", "hidden dev", "[]", "development", 32),
-        ("a0000000-0000-4000-8000-000000000005", CHAT_LEGACY, "user", "hidden legacy", "[]", "legacy", 51),
+        ("a0000000-0000-4000-8000-000000000003", 3, CHAT_NEWER, "user", "Pending question", "[]", "wechat", 31),
+        ("a0000000-0000-4000-8000-000000000004", 4, CHAT_NEWER, "assistant", "hidden dev", "[]", "development", 32),
+        ("a0000000-0000-4000-8000-000000000005", 5, CHAT_LEGACY, "user", "hidden legacy", "[]", "legacy", 51),
     )
-    connection.executemany("INSERT INTO message VALUES (?, ?, ?, ?, ?, ?, ?)", messages)
+    connection.executemany("INSERT INTO messages VALUES (?, ?, ?, ?, ?, ?, ?, ?)", messages)
     connection.execute(
-        "INSERT INTO content_report VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO content_reports VALUES (?, ?, ?, ?, ?, ?)",
         (
             "b0000000-0000-4000-8000-000000000001",
             USER_ID,
@@ -217,7 +225,7 @@ def test_deleted_chat_immediately_disappears_from_admin_view(tmp_path):
     assert store.get_chat(CHAT_OLDER)
     connection = sqlite3.connect(database)
     connection.execute("PRAGMA foreign_keys = ON")
-    connection.execute("DELETE FROM chat WHERE id = ?", (CHAT_OLDER,))
+    connection.execute("DELETE FROM chats WHERE id = ?", (CHAT_OLDER,))
     connection.commit()
     connection.close()
     assert store.get_chat(CHAT_OLDER) is None
@@ -262,7 +270,7 @@ def test_invalid_cursor_and_schema_fail_closed(tmp_path):
     create_store(corrupt)
     connection = sqlite3.connect(corrupt)
     connection.execute(
-        "UPDATE chat SET id = 'not-a-uuid' WHERE id = ?",
+        "UPDATE chats SET id = 'not-a-uuid' WHERE id = ?",
         (CHAT_NEWER,),
     )
     connection.commit()

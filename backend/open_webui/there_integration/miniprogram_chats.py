@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit, urlunsplit
 from uuid import UUID
 
-from sqlalchemy import inspect, text
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.exc import SQLAlchemyError
 
 if TYPE_CHECKING:
@@ -228,12 +228,29 @@ class MiniProgramChatStore:
 
     def __init__(
         self,
+        database_path: str | os.PathLike[str] | None = None,
         *,
         policy_version: str | None = None,
         _engine: Engine | None = None,
     ):
-        self._engine = _engine if _engine is not None else _primary_engine()
-        self._injected_test_engine = _engine is not None
+        self._injected_test_engine = _engine is not None or database_path is not None
+        if _engine is not None:
+            self._engine = _engine
+        elif database_path is not None:
+            # Backwards-compatible explicit test hook. Production always calls
+            # the no-argument constructor and therefore uses THERE PostgreSQL.
+            self._engine = create_engine(f"sqlite:///{database_path}")
+        else:
+            primary = _primary_engine()
+            # Isolated router tests use Open WebUI's SQLite engine and provide
+            # an explicit Mini Program path. The production identity gate
+            # requires PostgreSQL before this compatibility branch can occur.
+            test_path = os.getenv("BUILDSTUDIO_MINIPROGRAM_DATABASE_PATH", "").strip()
+            if primary.dialect.name == "sqlite" and test_path:
+                self._engine = create_engine(f"sqlite:///{test_path}")
+                self._injected_test_engine = True
+            else:
+                self._engine = primary
         self.policy_version = (
             policy_version if policy_version is not None else os.getenv(POLICY_VERSION_ENV, "")
         ).strip()

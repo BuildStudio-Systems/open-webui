@@ -77,3 +77,31 @@ export const DEFAULT_PERMISSIONS = {
 		interface: true
 	}
 } as const;
+
+// Preserve the known permission names while widening default true/false values
+// for editable forms. Do not widen the object to arbitrary keys or `any`.
+export type UserPermissions = {
+	-readonly [Group in keyof typeof DEFAULT_PERMISSIONS]: {
+		-readonly [Permission in keyof (typeof DEFAULT_PERMISSIONS)[Group]]: boolean;
+	};
+};
+
+export type PermissionOverrides = {
+	[Group in keyof UserPermissions]?: Partial<UserPermissions[Group]>;
+};
+
+export function fillPermissionDefaults(
+	overrides: PermissionOverrides = {},
+	defaults: UserPermissions = DEFAULT_PERMISSIONS
+): UserPermissions {
+	return {
+		...defaults,
+		...overrides,
+		workspace: { ...defaults.workspace, ...overrides.workspace },
+		sharing: { ...defaults.sharing, ...overrides.sharing },
+		access_grants: { ...defaults.access_grants, ...overrides.access_grants },
+		chat: { ...defaults.chat, ...overrides.chat },
+		features: { ...defaults.features, ...overrides.features },
+		settings: { ...defaults.settings, ...overrides.settings }
+	};
+}

@@ -5,32 +5,23 @@
 	import Switch from '$lib/components/common/Switch.svelte';
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
 
-	import { DEFAULT_PERMISSIONS } from '$lib/constants/permissions';
+	import {
+		fillPermissionDefaults,
+		type UserPermissions,
+		type PermissionOverrides
+	} from '$lib/constants/permissions';
 	import { config } from '$lib/stores';
 
-	export let permissions = {};
-	export let defaultPermissions = {};
+	export let permissions: UserPermissions = fillPermissionDefaults();
+	export let defaultPermissions: PermissionOverrides = {};
 
 	// Reactive statement to ensure all fields are present in `permissions`
 	$: {
-		permissions = fillMissingProperties(permissions, DEFAULT_PERMISSIONS);
-	}
-
-	function fillMissingProperties(obj: any, defaults: any) {
-		return {
-			...defaults,
-			...obj,
-			workspace: { ...defaults.workspace, ...obj.workspace },
-			sharing: { ...defaults.sharing, ...obj.sharing },
-			access_grants: { ...defaults.access_grants, ...obj.access_grants },
-			chat: { ...defaults.chat, ...obj.chat },
-			features: { ...defaults.features, ...obj.features },
-			settings: { ...defaults.settings, ...obj.settings }
-		};
+		permissions = fillPermissionDefaults(permissions);
 	}
 
 	onMount(() => {
-		permissions = fillMissingProperties(permissions, DEFAULT_PERMISSIONS);
+		permissions = fillPermissionDefaults(permissions);
 	});
 </script>
 

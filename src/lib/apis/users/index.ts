@@ -171,6 +171,7 @@ export const getUsers = async (
 
 	res = await fetch(`${WEBUI_API_BASE_URL}/users/?${searchParams.toString()}`, {
 		method: 'GET',
+		cache: 'no-store',
 		headers: {
 			'Content-Type': 'application/json',
 			Authorization: `Bearer ${token}`

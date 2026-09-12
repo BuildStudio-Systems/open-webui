@@ -59,7 +59,8 @@ export const AIAutocompletion = Extension.create({
 	},
 
 	addProseMirrorPlugins() {
-		let debounceTimer = null;
+		/** @type {ReturnType<typeof setTimeout> | undefined} */
+		let debounceTimer;
 		let loading = false;
 
 		let touchStartX = 0;
@@ -67,6 +68,7 @@ export const AIAutocompletion = Extension.create({
 
 		let isComposing = false;
 
+		/** @param {import('prosemirror-view').EditorView} view */
 		const handleAICompletion = (view) => {
 			const { state, dispatch } = view;
 			const { selection } = state;
@@ -103,7 +105,7 @@ export const AIAutocompletion = Extension.create({
 								loading = true;
 								this.options
 									.generateCompletion(prompt)
-									.then((suggestion) => {
+									.then(/** @param {string} suggestion */ (suggestion) => {
 										if (suggestion && suggestion.trim() !== '') {
 											if (view.state.selection.$head.pos === view.state.selection.$head.end()) {
 												if (view.state === newState) {

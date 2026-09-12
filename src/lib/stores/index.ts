@@ -4,6 +4,7 @@ import type { ModelConfig } from '$lib/apis';
 import type { Banner } from '$lib/types';
 import type { Socket } from 'socket.io-client';
 import type { AudioQueue } from '$lib/utils/audio';
+import type { WorkspaceTool, WorkspaceSkill, WorkspaceFunction, FolderSummary, NoteSummary, ChatTag } from '$lib/types/workspace';
 
 import emojiShortCodes from '$lib/emoji-shortcodes.json';
 
@@ -58,18 +59,18 @@ export const channels = writable([]);
 export const channelId = writable(null);
 
 export { chats, pinnedChats } from './chatList';
-export const pinnedNotes = writable([]);
-export const tags = writable([]);
-export const folders = writable([]);
+export const pinnedNotes = writable<NoteSummary[]>([]);
+export const tags = writable<ChatTag[]>([]);
+export const folders = writable<FolderSummary[]>([]);
 
-export const selectedFolder = writable(null);
+export const selectedFolder = writable<FolderSummary | null>(null);
 
 export const models: Writable<Model[]> = writable([]);
 
 export const knowledge: Writable<null | Document[]> = writable(null);
-export const tools = writable(null);
-export const skills = writable(null);
-export const functions = writable(null);
+export const tools = writable<WorkspaceTool[] | null>(null);
+export const skills = writable<WorkspaceSkill[] | null>(null);
+export const functions = writable<WorkspaceFunction[] | null>(null);
 
 export type WorkspaceSection = 'models' | 'knowledge' | 'prompts' | 'skills' | 'tools';
 export type WorkspaceAction = {

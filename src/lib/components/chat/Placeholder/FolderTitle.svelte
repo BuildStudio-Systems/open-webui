@@ -10,6 +10,7 @@
 	import { toast } from 'svelte-sonner';
 
 	import { selectedFolder } from '$lib/stores';
+	import type { FolderSummary } from '$lib/types/workspace';
 
 	import {
 		deleteFolderById,
@@ -30,11 +31,17 @@
 	import Emoji from '$lib/components/common/Emoji.svelte';
 	import EmojiPicker from '$lib/components/common/EmojiPicker.svelte';
 
-	export let folder = null;
+	export let folder: FolderSummary;
 	export let readOnly: boolean = false;
 
-	export let onUpdate: Function = (folderId) => {};
-	export let onDelete: Function = (folderId) => {};
+	export let onUpdate: (folder?: FolderSummary) => void | Promise<void> = () => {};
+	export let onDelete: (folder: FolderSummary) => void | Promise<void> = () => {};
+	type FolderInput = {
+		name: string;
+		meta?: NonNullable<FolderSummary['meta']>;
+		data?: NonNullable<FolderSummary['data']>;
+		parent_id?: string | null;
+	};
 
 	let showFolderModal = false;
 	let showCreateSubFolderModal = false;
@@ -42,7 +49,7 @@
 	let showDeleteConfirm = false;
 	let deleteFolderContents = true;
 
-	const updateHandler = async ({ name, meta, data }) => {
+	const updateHandler = async ({ name, meta, data }: FolderInput) => {
 		if (name === '') {
 			toast.error($i18n.t('Folder name cannot be empty.'));
 			return;
@@ -83,7 +90,7 @@
 		}
 	};
 
-	const updateIconHandler = async (iconName) => {
+	const updateIconHandler = async (iconName: string | null) => {
 		const res = await updateFolderById(localStorage.token, folder.id, {
 			meta: {
 				icon: iconName ?? ''
@@ -139,7 +146,7 @@
 		saveAs(blob, `folder-${folder.name}-export-${Date.now()}.json`);
 	};
 
-	const createSubFolderHandler = async ({ name, meta, data, parent_id }) => {
+	const createSubFolderHandler = async ({ name, meta, data, parent_id }: FolderInput) => {
 		if (name === '') {
 			toast.error($i18n.t('Folder name cannot be empty.'));
 			return;

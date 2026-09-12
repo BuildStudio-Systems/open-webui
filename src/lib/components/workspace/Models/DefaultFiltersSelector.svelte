@@ -8,7 +8,7 @@
 		id: string;
 		name?: string;
 		meta?: {
-			description?: string;
+			description?: string | null;
 		};
 	};
 
@@ -35,7 +35,7 @@
 				id="model-default-filters-selector"
 				items={filters.map((filter) => ({
 					...filter,
-					description: filter.meta?.description
+					description: filter.meta?.description ?? ''
 				}))}
 				selectedIds={selectedFilterIds}
 				placeholder={$i18n.t('Search filters')}

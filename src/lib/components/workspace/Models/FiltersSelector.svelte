@@ -9,7 +9,7 @@
 		name?: string;
 		is_global?: boolean;
 		meta?: {
-			description?: string;
+			description?: string | null;
 		};
 	};
 
@@ -40,7 +40,7 @@
 					id="model-filters-selector"
 					items={selectableFilters.map((filter) => ({
 						...filter,
-						description: filter.meta?.description
+						description: filter.meta?.description ?? ''
 					}))}
 					selectedIds={selectedFilterIds}
 					placeholder={$i18n.t('Search filters')}

@@ -7,7 +7,7 @@
 	type Skill = {
 		id: string;
 		name?: string;
-		description?: string;
+		description?: string | null;
 		is_active?: boolean;
 	};
 

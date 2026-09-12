@@ -18,8 +18,8 @@
 	export let show = false;
 	export let onSubmit: Function = (e) => {};
 
-	export let folderId = null;
-	export let parentId = null;
+	export let folderId: string | null = null;
+	export let parentId: string | null = null;
 	export let edit = false;
 
 	let folder = null;

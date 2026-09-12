@@ -9,7 +9,7 @@
 		name?: string;
 		is_global?: boolean;
 		meta?: {
-			description?: string;
+			description?: string | null;
 		};
 	};
 
@@ -40,7 +40,7 @@
 					id="model-actions-selector"
 					items={selectableActions.map((action) => ({
 						...action,
-						description: action.meta?.description
+						description: action.meta?.description ?? ''
 					}))}
 					selectedIds={selectedActionIds}
 					placeholder={$i18n.t('Search actions')}

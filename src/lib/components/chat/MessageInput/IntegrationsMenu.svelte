@@ -32,8 +32,8 @@
 	type IntegrationItem = {
 		id: string;
 		name: string;
-		description?: string;
-		meta?: { description?: string };
+		description?: string | null;
+		meta?: { description?: string | null; tags?: string[] | null };
 		is_active?: boolean;
 		authenticated?: boolean;
 		has_user_valves?: boolean;
@@ -112,7 +112,7 @@
 			a[tool.id] = {
 				...tool,
 				name: tool.name,
-				description: tool.meta?.description
+				description: tool.meta?.description ?? ''
 			};
 			return a;
 		}, {});
@@ -147,7 +147,7 @@
 				a[skill.id] = {
 					...skill,
 					name: skill.name,
-					description: skill.description
+					description: skill.description ?? ''
 				};
 				return a;
 			}, {});

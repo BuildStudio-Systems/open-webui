@@ -8,7 +8,7 @@
 		id: string;
 		name?: string;
 		meta?: {
-			description?: string;
+			description?: string | null;
 		};
 	};
 

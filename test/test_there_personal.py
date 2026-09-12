@@ -80,6 +80,36 @@ def test_personal_isolation_and_audit(modules, monkeypatch, tmp_path):
     asyncio.run(run())
 
 
+def test_all_history_search_and_old_source_recall(modules, monkeypatch, tmp_path):
+    async def run():
+        from open_webui.models.chats import Chat
+        from open_webui.there_integration.personal import history_page, personal_sources
+        async with harness(modules, monkeypatch, tmp_path) as h:
+            async with h.sessions() as db:
+                messages = {'q': {'role': 'user', 'content': '深海项目 100%_literal'},
+                            'a': {'role': 'assistant', 'content': '历史校验答案', 'parentId': 'q', 'done': True}}
+                for owner in ('alice', 'bob'):
+                    db.add(Chat(id=owner+'-old', user_id=owner, title='old',
+                        chat={'history': {'messages': messages}}, meta={}, created_at=1, updated_at=1))
+                for i in range(35):
+                    db.add(Chat(id=f'alice-new-{i}', user_id='alice', title='new',
+                        chat={'history': {'messages': {}}}, meta={}, created_at=2, updated_at=100+i))
+                await db.commit()
+                assert not (await history_page(db, 'alice'))['items']
+                found = await history_page(db, 'alice', query='100%_literal')
+                assert [item['chat_id'] for item in found['items']] == ['alice-old']
+                assert found['search_scope'] == 'all_history'
+                assert not (await history_page(db, 'alice', query='100Xliteral'))['items']
+                source = await personal_sources(SimpleNamespace(id='alice'), 'alice-new-0', '深海项目', db=db)
+                assert source[0]['metadata'][0]['chat_id'] == 'alice-old'
+                old = await db.get(Chat, 'alice-old')
+                old.chat = {'history': {'messages': {}}}
+                await db.commit()
+                assert not (await history_page(db, 'alice', query='深海项目'))['items']
+                assert not await personal_sources(SimpleNamespace(id='alice'), 'alice-new-0', '深海项目', db=db)
+    asyncio.run(run())
+
+
 def test_retrieval_never_inherits_admin_scope(modules, monkeypatch, tmp_path):
     async def run():
         from open_webui.models.chats import Chat

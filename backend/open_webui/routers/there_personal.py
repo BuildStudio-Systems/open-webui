@@ -19,12 +19,19 @@ async def private_response(response: Response):
 router = APIRouter(dependencies=[Depends(private_response)])
 
 
+async def bounded_history(db, owner_id, **kwargs):
+    try:
+        return await history_page(db, owner_id, **kwargs)
+    except TimeoutError:
+        raise HTTPException(503, '历史检索超时，请稍后重试或缩小关键词范围。') from None
+
+
 @router.get('/personal/history')
 async def own_history(query: str = Query('', max_length=500),
                       page: int = Query(1, ge=1, le=100000),
                       user=Depends(get_verified_user), db: AsyncSession = Depends(get_async_session)):
     # No target user parameter or administrator bypass on the personal endpoint.
-    return await history_page(db, user.id, query=query, page=page)
+    return await bounded_history(db, user.id, query=query, page=page)
 
 
 @router.get('/admin/personal-history/{owner_id}')
@@ -49,5 +56,5 @@ async def admin_history(owner_id: str, request: Request,
         resource_id=owner_id, action='admin.personal_history.read', state='requested',
         created_at=now, updated_at=now))
     await db.commit()
-    result = await history_page(db, owner_id, query=query, page=page)
+    result = await bounded_history(db, owner_id, query=query, page=page)
     return {**result, 'scope': 'admin', 'owner_id': owner_id, 'audit_id': audit_id}

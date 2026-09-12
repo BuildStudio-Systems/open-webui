@@ -3,6 +3,7 @@
 	import { page } from '$app/stores';
 	import { user } from '$lib/stores';
 	import ThereWiki from '$lib/components/workspace/ThereWiki.svelte';
+	import TherePersonalHistory from '$lib/components/workspace/TherePersonalHistory.svelte';
 	import {
 		activateThereSkill,
 		createThereDocument,
@@ -44,9 +45,11 @@
 		type ThereSkillDetail
 	} from '$lib/apis/there';
 
-	type Section = 'knowledge' | 'skills' | 'research' | 'status';
+	type Section = 'knowledge' | 'skills' | 'research' | 'status' | 'personal' | 'admin-history';
 	const sections: { id: Section; label: string }[] = [
 		{ id: 'knowledge', label: '知识' },
+		{ id: 'personal', label: '个人问答' },
+		{ id: 'admin-history', label: '管理员调取' },
 		{ id: 'skills', label: '技能' },
 		{ id: 'research', label: '论文' },
 		{ id: 'status', label: '运行状态' }
@@ -58,7 +61,14 @@
 	const secondaryClass =
 		'rounded-xl border border-gray-200 px-3 py-2 text-sm hover:bg-gray-50 disabled:opacity-40 dark:border-gray-700 dark:hover:bg-gray-800';
 	let section: Section = 'knowledge';
-	let errors: Record<Section, string> = { knowledge: '', skills: '', research: '', status: '' };
+	let errors: Record<Section, string> = {
+		knowledge: '',
+		skills: '',
+		research: '',
+		status: '',
+		personal: '',
+		'admin-history': ''
+	};
 	let notice = '';
 	let modules: ThereModule[] = [];
 	let version = '';
@@ -868,7 +878,7 @@
 		aria-label="THERE 能力分类"
 		class="flex gap-1 overflow-x-auto border-b border-gray-100 pb-2 dark:border-gray-800"
 	>
-		{#each sections as item}
+		{#each sections.filter((item) => item.id !== 'admin-history' || $user?.role === 'admin') as item}
 			<button
 				type="button"
 				aria-pressed={section === item.id}
@@ -900,7 +910,11 @@
 		</div>
 	{/if}
 
-	{#if section === 'knowledge'}
+	{#if section === 'personal'}
+		{#key section}<TherePersonalHistory />{/key}
+	{:else if section === 'admin-history' && $user?.role === 'admin'}
+		{#key section}<TherePersonalHistory admin={true} />{/key}
+	{:else if section === 'knowledge'}
 		<p
 			class="rounded-xl bg-gray-50 px-4 py-3 text-sm leading-6 text-gray-600 dark:bg-gray-850 dark:text-gray-300"
 		>
@@ -1434,7 +1448,12 @@
 					{#if !isFaq}
 						<details class="rounded-2xl border border-gray-200 p-4 dark:border-gray-800">
 							<summary class="cursor-pointer text-sm font-medium">Wiki 知识页面管理</summary>
-							<div class="mt-4">{#key selectedKnowledge.id}<ThereWiki knowledgeId={selectedKnowledge.id} canWrite={canManageKnowledge} />{/key}</div>
+							<div class="mt-4">
+								{#key selectedKnowledge.id}<ThereWiki
+										knowledgeId={selectedKnowledge.id}
+										canWrite={canManageKnowledge}
+									/>{/key}
+							</div>
 						</details>
 					{/if}
 				{:else}

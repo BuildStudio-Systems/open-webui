@@ -1,5 +1,25 @@
 import { WEBUI_API_BASE_URL } from '$lib/constants';
 
+export type PersonalHistoryPage = {
+	items: {
+		chat_id: string;
+		message_id: string;
+		title: string;
+		question: string;
+		answer: string;
+		truncated: boolean;
+	}[];
+	page: number;
+	has_more: boolean;
+	scope: string;
+	audit_id?: string;
+};
+export const getPersonalHistory = (token: string, query: string, page: number, owner?: string) =>
+	request<PersonalHistoryPage>(
+		token,
+		`${owner === undefined ? '/personal/history' : `/admin/personal-history/${encodeURIComponent(owner)}`}?${new URLSearchParams({ query, page: String(page) })}`
+	);
+
 export type ThereModule = { id: string; name: string; state: string; detail?: string };
 export type ThereKnowledge = {
 	id: string;

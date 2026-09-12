@@ -3104,6 +3104,16 @@ async def process_chat_payload(request, form_data, user, metadata, model):
         except Exception:
             log.warning('File-context preparation failed')
 
+    # Private history is never retrieved using an administrator-selected owner.
+    # Interactive saved chats only; the service also rejects shared destinations.
+    if metadata.get('session_id') and prompt and is_saved_chat_id(metadata.get('chat_id')):
+        try:
+            from open_webui.there_integration.personal import personal_sources
+            sources.extend(await personal_sources(user, metadata['chat_id'], prompt))
+        except Exception:
+            # History is optional context: no prompt text or user data in logs.
+            log.warning('Personal-history context unavailable')
+
     # Save the pre-RAG message state so the native tool call loop can
     # restore to the true original (before file-source injection) rather
     # than a snapshot that already has the RAG template baked in.

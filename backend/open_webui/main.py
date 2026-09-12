@@ -174,6 +174,7 @@ from open_webui.routers import (
     terminals,
     there,
     there_knowledge,
+    there_personal,
     tools,
     users,
     utils,
@@ -850,6 +851,7 @@ app.include_router(notifications.router, prefix='/api/v1/notifications', tags=['
 app.include_router(knowledge.router, prefix='/api/v1/knowledge', tags=['knowledge'])
 app.include_router(there.router, prefix='/api/v1/there', tags=['there'])
 app.include_router(there_knowledge.router, prefix='/api/v1/there', tags=['there'])
+app.include_router(there_personal.router, prefix='/api/v1/there', tags=['there'])
 app.include_router(prompts.router, prefix='/api/v1/prompts', tags=['prompts'])
 app.include_router(tools.router, prefix='/api/v1/tools', tags=['tools'])
 app.include_router(skills.router, prefix='/api/v1/skills', tags=['skills'])

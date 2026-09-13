@@ -2,7 +2,11 @@
 	import DOMPurify from 'dompurify';
 	import { toast } from 'svelte-sonner';
 	import fileSaver from 'file-saver';
-	import { attachmentUrl, fetchAttachment } from '$lib/utils/attachment-download';
+	import {
+		attachmentUrl,
+		saveAttachment,
+		browserAttachmentSavePicker
+	} from '$lib/utils/attachment-download';
 
 	import type { Token } from 'marked';
 	import { getContext } from 'svelte';
@@ -54,12 +58,13 @@
 		if (attachmentUrl(href, window.location.origin)) {
 			e.preventDefault();
 			try {
-				const result = await fetchAttachment(
+				await saveAttachment(
 					href,
 					window.location.origin,
-					localStorage.token ?? ''
+					localStorage.token ?? '',
+					(blob, filename) => fileSaver.saveAs(blob, filename),
+					browserAttachmentSavePicker()
 				);
-				fileSaver.saveAs(result.blob, result.filename);
 			} catch (error) {
 				toast.error($i18n.t(error instanceof Error ? error.message : 'Attachment download failed'));
 			}

@@ -1188,6 +1188,7 @@
 	"Failed to delete webhook": "",
 	"Failed to disconnect": "中斷連線失敗",
 	"Failed to download image": "圖片下載失敗",
+	"Attachment exceeds the 64 MiB browser buffer limit; use a desktop browser with streaming save support": "附件超過目前瀏覽器 64 MiB 的記憶體下載上限，請使用支援串流儲存的桌面瀏覽器",
 	"Failed to extract content from the file: {{error}}": "檔案內容擷取失敗：{{error}}",
 	"Failed to extract content from the file.": "檔案內容擷取失敗",
 	"Failed to fetch models": "取得模型失敗",

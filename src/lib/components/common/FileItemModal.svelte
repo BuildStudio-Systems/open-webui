@@ -3,7 +3,7 @@
 	import DOMPurify from 'dompurify';
 	import fileSaver from 'file-saver';
 	import { toast } from 'svelte-sonner';
-	import { fetchAttachment } from '$lib/utils/attachment-download';
+	import { saveAttachment, browserAttachmentSavePicker } from '$lib/utils/attachment-download';
 
 	import { getContext, onMount, tick } from 'svelte';
 
@@ -44,12 +44,15 @@
 		if (downloading || !item?.id) return;
 		downloading = true;
 		try {
-			const result = await fetchAttachment(
+			await saveAttachment(
 				`${WEBUI_API_BASE_URL}/files/${encodeURIComponent(item.id)}/content?attachment=true`,
 				window.location.origin,
-				localStorage.token ?? ''
+				localStorage.token ?? '',
+				(blob, filename) => fileSaver.saveAs(blob, filename),
+				browserAttachmentSavePicker(),
+				fetch,
+				item?.filename ?? item?.name
 			);
-			fileSaver.saveAs(result.blob, result.filename);
 		} catch (error) {
 			toast.error($i18n.t(error instanceof Error ? error.message : 'Attachment download failed'));
 		} finally {

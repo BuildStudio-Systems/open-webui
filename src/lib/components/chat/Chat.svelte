@@ -66,6 +66,7 @@
 	} from '$lib/utils';
 	import { AudioQueue } from '$lib/utils/audio';
 	import { hasPendingAssistantResponse } from '$lib/utils/response-tasks';
+	import { canUseWebSearch, DEFAULT_WEB_SEARCH_ENABLED } from '$lib/utils/web-search-policy';
 	import { createTemporaryChatId, isTemporaryChatId } from '$lib/utils/chatId';
 	import { applyResponseStreamEvent, getOutputText } from './Messages/structuredOutput';
 	import {
@@ -328,7 +329,7 @@
 	let pendingOAuthTools = [];
 
 	let imageGenerationEnabled = false;
-	let webSearchEnabled = true;
+	let webSearchEnabled = DEFAULT_WEB_SEARCH_ENABLED;
 	let codeInterpreterEnabled = false;
 	let webSearchActive = false;
 	let showWebSearchConfirm = false;
@@ -343,9 +344,12 @@
 			).length === currentModels.length;
 
 		webSearchActive = Boolean(
-			$config?.features?.enable_web_search &&
-			($user?.role === 'admin' || $user?.permissions?.features?.web_search) &&
-			allModelsSupportWebSearch && webSearchEnabled
+			canUseWebSearch(
+				$user?.role,
+				$user?.permissions?.features?.web_search,
+				$config?.features?.enable_web_search,
+				allModelsSupportWebSearch
+			) && webSearchEnabled
 		);
 	}
 
@@ -765,7 +769,9 @@
 			selectedToolIds = input.selectedToolIds ?? [];
 			selectedSkillIds = input.selectedSkillIds ?? [];
 			selectedFilterIds = input.selectedFilterIds ?? [];
-			webSearchEnabled = input.webSearchEnabled ?? true;
+			webSearchEnabled = chatIdProp
+				? (input.webSearchEnabled ?? DEFAULT_WEB_SEARCH_ENABLED)
+				: DEFAULT_WEB_SEARCH_ENABLED;
 			imageGenerationEnabled = input.imageGenerationEnabled ?? false;
 			codeInterpreterEnabled = input.codeInterpreterEnabled ?? false;
 			if (input.thinkingMode) {
@@ -834,7 +840,7 @@
 		selectedToolIds = [];
 		selectedSkillIds = [];
 		selectedFilterIds = [];
-		webSearchEnabled = true;
+		webSearchEnabled = DEFAULT_WEB_SEARCH_ENABLED;
 		imageGenerationEnabled = false;
 
 		const storageChatInput = sessionStorage.getItem(
@@ -905,7 +911,7 @@
 		selectedToolIds = [];
 		selectedSkillIds = [];
 		selectedFilterIds = [];
-		webSearchEnabled = true;
+		webSearchEnabled = DEFAULT_WEB_SEARCH_ENABLED;
 		imageGenerationEnabled = false;
 		codeInterpreterEnabled = false;
 		prompt = '';
@@ -974,7 +980,7 @@
 		selectedSkillIds = [];
 		selectedFilterIds = [];
 		pendingOAuthTools = [];
-		webSearchEnabled = true;
+		webSearchEnabled = DEFAULT_WEB_SEARCH_ENABLED;
 		imageGenerationEnabled = false;
 		codeInterpreterEnabled = false;
 
@@ -1084,13 +1090,7 @@
 						imageGenerationEnabled = model.info.meta.defaultFeatureIds.includes('image_generation');
 					}
 
-					if (
-						model.info?.meta?.capabilities?.['web_search'] &&
-						$config?.features?.enable_web_search &&
-						($user?.role === 'admin' || $user?.permissions?.features?.web_search)
-					) {
-						webSearchEnabled = true;
-					}
+					// Web search is an explicit conversation opt-in, not a model default.
 
 					if (
 						model.info?.meta?.capabilities?.['code_interpreter'] &&
@@ -1614,7 +1614,7 @@
 				selectedToolIds = [];
 				selectedSkillIds = [];
 				selectedFilterIds = [];
-				webSearchEnabled = true;
+				webSearchEnabled = DEFAULT_WEB_SEARCH_ENABLED;
 				imageGenerationEnabled = false;
 				codeInterpreterEnabled = false;
 

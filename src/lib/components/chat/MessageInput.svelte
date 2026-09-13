@@ -18,6 +18,7 @@
 	import { createPicker, getAuthToken } from '$lib/utils/google-drive-picker';
 	import { pickAndDownloadFile } from '$lib/utils/onedrive-file-picker';
 	import { KokoroWorker } from '$lib/workers/KokoroWorker';
+	import { canUseWebSearch, DEFAULT_WEB_SEARCH_ENABLED } from '$lib/utils/web-search-policy';
 
 	const dispatch = createEventDispatcher();
 
@@ -188,7 +189,7 @@
 	export let selectedFilterIds: string[] = [];
 
 	export let imageGenerationEnabled = false;
-	export let webSearchEnabled = true;
+	export let webSearchEnabled = DEFAULT_WEB_SEARCH_ENABLED;
 	export let codeInterpreterEnabled = false;
 	export let thinkingMode: ThinkingMode = 'off';
 	export let onThinkingModeChange: (mode: ThinkingMode) => void | Promise<void> = () => {};
@@ -813,10 +814,12 @@
 	$: showSkillsButton = ($skills ?? []).some((skill) => skill.is_active);
 
 	let showWebSearchButton = false;
-	$: showWebSearchButton =
-		selectedModelIds.length === webSearchCapableModels.length &&
-		$config?.features?.enable_web_search &&
-		($_user.role === 'admin' || $_user?.permissions?.features?.web_search);
+	$: showWebSearchButton = canUseWebSearch(
+		$_user?.role,
+		$_user?.permissions?.features?.web_search,
+		$config?.features?.enable_web_search,
+		selectedModelIds.length === webSearchCapableModels.length
+	);
 
 	let showImageGenerationButton = false;
 	$: showImageGenerationButton =

@@ -220,6 +220,7 @@ from open_webui.utils.auth import (
     get_http_authorization_cred,
     get_license_data,
     get_verified_user,
+    get_verified_user_by_token,
 )
 from open_webui.utils.chat import (
     chat_completed as chat_completed_handler,
@@ -2237,16 +2238,14 @@ async def get_app_config(request: Request):
         token = request.cookies.get('token')
 
     if token:
-        try:
-            data = decode_token(token)
-        except Exception:
-            log.debug('Authentication token decoding failed')
+        # Systems sessions are not legacy WebUI JWTs. Use the same verified
+        # session resolver as Socket.IO, including expiry/revocation checks.
+        user = await get_verified_user_by_token(token, getattr(request.app.state, 'redis', None))
+        if user is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail='Invalid token',
             )
-        if data is not None and 'id' in data:
-            user = await Users.get_user_by_id(data['id'])
 
     onboarding = False
     if user is None:

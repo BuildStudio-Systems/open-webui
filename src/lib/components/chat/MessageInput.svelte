@@ -188,7 +188,7 @@
 	export let selectedFilterIds: string[] = [];
 
 	export let imageGenerationEnabled = false;
-	export let webSearchEnabled = false;
+	export let webSearchEnabled = true;
 	export let codeInterpreterEnabled = false;
 	export let thinkingMode: ThinkingMode = 'off';
 	export let onThinkingModeChange: (mode: ThinkingMode) => void | Promise<void> = () => {};
@@ -2141,7 +2141,6 @@
 															selectedToolIds = [];
 															selectedFilterIds = [];
 
-															webSearchEnabled = false;
 															imageGenerationEnabled = false;
 															codeInterpreterEnabled = false;
 														}
@@ -2273,6 +2272,7 @@
 												selectedModels={selectedModelIds}
 												{toggleFilters}
 												{showWebSearchButton}
+												showWebSearchControl={false}
 												{showImageGenerationButton}
 												{showCodeInterpreterButton}
 												bind:selectedToolIds
@@ -2312,6 +2312,23 @@
 												</button>
 											</IntegrationsMenu>
 										{/if}
+
+										<Tooltip content={showWebSearchButton ? $i18n.t('Web Search') : $i18n.t('Web search is currently unavailable')} placement="top">
+											<button
+												type="button"
+												id="web-search-button"
+												aria-label={$i18n.t('Web Search')}
+												aria-pressed={Boolean(showWebSearchButton && webSearchEnabled)}
+												disabled={!showWebSearchButton || generating}
+												class="ml-1 rounded-full size-[1.875rem] flex items-center justify-center shrink-0 disabled:opacity-40 {showWebSearchButton && webSearchEnabled ? 'text-sky-500 dark:text-sky-300 bg-sky-100 dark:bg-sky-400/15' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'}"
+												on:click={() => {
+													webSearchEnabled = !webSearchEnabled;
+													onWebSearchToggle(webSearchEnabled);
+												}}
+											>
+												<GlobeAlt className="size-4.5" strokeWidth="1.75" />
+											</button>
+										</Tooltip>
 
 										{#if thinkingModeAvailable}
 											<div class="ml-1 flex shrink-0">
@@ -2451,24 +2468,6 @@
 													</Tooltip>
 												{/if}
 											{/each}
-
-											{#if webSearchEnabled && showWebSearchButton}
-												<Tooltip content={$i18n.t('Web Search')} placement="top">
-													<button
-														on:click|preventDefault={() => (webSearchEnabled = !webSearchEnabled)}
-														type="button"
-														class="group p-[0.375rem] flex gap-1.5 items-center text-sm rounded-full transition-colors duration-300 focus:outline-hidden max-w-full overflow-hidden {webSearchEnabled ||
-														($settings?.webSearch ?? false) === 'always'
-															? ' text-sky-500 dark:text-sky-300 bg-sky-50 hover:bg-sky-100 dark:bg-sky-400/10 dark:hover:bg-sky-600/10 border border-sky-200/40 dark:border-sky-500/20'
-															: 'bg-transparent text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 '}"
-													>
-														<GlobeAlt className="size-4" strokeWidth="1.75" />
-														<div class="hidden group-hover:block">
-															<XMark className="size-4" strokeWidth="1.75" />
-														</div>
-													</button>
-												</Tooltip>
-											{/if}
 
 											{#if imageGenerationEnabled && showImageGenerationButton}
 												<Tooltip content={$i18n.t('Image')} placement="top">

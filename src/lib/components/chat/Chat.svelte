@@ -65,6 +65,7 @@
 		getUsageTokenCount
 	} from '$lib/utils';
 	import { AudioQueue } from '$lib/utils/audio';
+	import { hasPendingAssistantResponse } from '$lib/utils/response-tasks';
 	import { createTemporaryChatId, isTemporaryChatId } from '$lib/utils/chatId';
 	import { applyResponseStreamEvent, getOutputText } from './Messages/structuredOutput';
 	import {
@@ -327,7 +328,7 @@
 	let pendingOAuthTools = [];
 
 	let imageGenerationEnabled = false;
-	let webSearchEnabled = false;
+	let webSearchEnabled = true;
 	let codeInterpreterEnabled = false;
 	let webSearchActive = false;
 	let showWebSearchConfirm = false;
@@ -344,8 +345,7 @@
 		webSearchActive = Boolean(
 			$config?.features?.enable_web_search &&
 			($user?.role === 'admin' || $user?.permissions?.features?.web_search) &&
-			(webSearchEnabled ||
-				(allModelsSupportWebSearch && ($settings?.webSearch ?? false) === 'always'))
+			allModelsSupportWebSearch && webSearchEnabled
 		);
 	}
 
@@ -765,7 +765,7 @@
 			selectedToolIds = input.selectedToolIds ?? [];
 			selectedSkillIds = input.selectedSkillIds ?? [];
 			selectedFilterIds = input.selectedFilterIds ?? [];
-			webSearchEnabled = input.webSearchEnabled ?? false;
+			webSearchEnabled = input.webSearchEnabled ?? true;
 			imageGenerationEnabled = input.imageGenerationEnabled ?? false;
 			codeInterpreterEnabled = input.codeInterpreterEnabled ?? false;
 			if (input.thinkingMode) {
@@ -834,7 +834,7 @@
 		selectedToolIds = [];
 		selectedSkillIds = [];
 		selectedFilterIds = [];
-		webSearchEnabled = false;
+		webSearchEnabled = true;
 		imageGenerationEnabled = false;
 
 		const storageChatInput = sessionStorage.getItem(
@@ -905,7 +905,7 @@
 		selectedToolIds = [];
 		selectedSkillIds = [];
 		selectedFilterIds = [];
-		webSearchEnabled = false;
+		webSearchEnabled = true;
 		imageGenerationEnabled = false;
 		codeInterpreterEnabled = false;
 		prompt = '';
@@ -974,7 +974,7 @@
 		selectedSkillIds = [];
 		selectedFilterIds = [];
 		pendingOAuthTools = [];
-		webSearchEnabled = false;
+		webSearchEnabled = true;
 		imageGenerationEnabled = false;
 		codeInterpreterEnabled = false;
 
@@ -1089,7 +1089,7 @@
 						$config?.features?.enable_web_search &&
 						($user?.role === 'admin' || $user?.permissions?.features?.web_search)
 					) {
-						webSearchEnabled = model.info.meta.defaultFeatureIds.includes('web_search');
+						webSearchEnabled = true;
 					}
 
 					if (
@@ -1614,7 +1614,7 @@
 				selectedToolIds = [];
 				selectedSkillIds = [];
 				selectedFilterIds = [];
-				webSearchEnabled = false;
+				webSearchEnabled = true;
 				imageGenerationEnabled = false;
 				codeInterpreterEnabled = false;
 
@@ -2831,6 +2831,11 @@
 
 		if (done) {
 			message.done = true;
+			if (!hasPendingAssistantResponse(history.messages)) {
+				// A response is finished before optional title/tag/follow-up jobs.
+				// Do not require a second socket event to unlock the composer.
+				taskIds = null;
+			}
 			const visibleContent =
 				getOutputText(message?.output) || removeAllDetails(message?.content ?? '');
 
@@ -3666,7 +3671,11 @@
 				await handleOpenAIError(res.error, responseMessage);
 			} else {
 				// Backend returns task_ids (multi-model) or task_id (single model)
-				onToolCallResolved(res);
+				// A fast socket completion can precede this HTTP acknowledgement.
+				// Do not resurrect task IDs after every response has already finished.
+				if (hasPendingAssistantResponse(history.messages)) {
+					onToolCallResolved(res);
+				}
 
 				// Backend returns chat_id for new chats — set store + URL.
 				// Only update if the user hasn't navigated to a different chat

@@ -57,6 +57,7 @@
 	export let selectedFilterIds: string[] = [];
 
 	export let showWebSearchButton = false;
+	export let showWebSearchControl = true;
 	export let webSearchEnabled = false;
 	export let showImageGenerationButton = false;
 	export let imageGenerationEnabled = false;
@@ -392,7 +393,7 @@
 						{/each}
 					{/if}
 
-					{#if showWebSearchButton}
+					{#if showWebSearchControl && showWebSearchButton}
 						<Tooltip content={$i18n.t('Search the internet')} placement="top-start">
 							<button
 								class="flex w-full justify-between gap-2 items-center h-[1.6875rem] px-2 text-[0.8125rem] font-normal cursor-pointer rounded-xl hover:bg-gray-50/40 dark:hover:bg-gray-800/40"
@@ -419,7 +420,7 @@
 						</Tooltip>
 					{/if}
 
-					{#if !showWebSearchButton}
+					{#if showWebSearchControl && !showWebSearchButton}
 						<div class="px-2 py-2 text-xs text-gray-500" role="note">
 							<div class="flex items-center gap-2"><GlobeAlt />{$i18n.t('Web Search')}</div>
 							<p class="mt-1 whitespace-normal">{$i18n.t('The web search switch is unavailable for this model or account, or is disabled by the administrator. Agent tools and academic search are configured separately.')}</p>

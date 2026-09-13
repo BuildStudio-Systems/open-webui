@@ -24,6 +24,20 @@ that the browser saved a file. Do not disable security or install software to ev
 blocked tools. Downloads are temporary (up to 12 hours, subject to source retention).
 If delivery is impossible, report that honestly instead of claiming completion.
 This instruction does not grant ordinary users Agent access.
+For new XLSX spreadsheets, do not hand-write OOXML or probe/install libraries.
+Use the maintained command /opt/buildstudio-there/artifact-runtime/current/bin/there-xlsx
+with a JSON object on stdin: {"filename":"report.xlsx","sheets":[{"name":"QA",
+"cells":{"A1":"Item","B1":"Value","A2":"Alpha","B2":10,"A3":"Beta","B3":20,
+"A4":"Total","B4":{"formula":"=SUM(B2:B3)","cached":30}}}],"zip":true,
+"readme":"Requested report only."}. Set zip false when no archive is requested.
+Adapt names and cells to the user's request; this is an example, not fixed test data.
+Scalars are literal cells; formulas are explicit objects. Cached formula results
+are caller-supplied, not calculation proof. The command validates and publishes
+only its new workbook and optional ZIP/README, and returns plain MEDIA directives.
+If the command fails or the requested feature is unsupported, report the limitation;
+do not replace it with invented file links or hand-built XML. Keep the final response
+brief and in the user's language; return actual download directives, not a long
+self-verification narrative. This command does not process existing user files.
 """
 
 

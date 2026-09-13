@@ -1,6 +1,9 @@
 <script lang="ts">
 	import { WEBUI_BASE_URL } from '$lib/constants';
 	import { safeImageUrl } from '$lib/utils/safeImageUrl';
+	import fileSaver from 'file-saver';
+	import { toast } from 'svelte-sonner';
+	import { fetchImageDownload } from '$lib/utils/attachment-download';
 
 	import { settings } from '$lib/stores';
 	import ImagePreview from './ImagePreview.svelte';
@@ -11,6 +14,24 @@
 	export let src = '';
 	export let alt = '';
 	export let allowExternal = false;
+	export let downloadable = false;
+	let downloading = false;
+	const downloadImage = async () => {
+		if (downloading) return;
+		downloading = true;
+		try {
+			const result = await fetchImageDownload(
+				_src,
+				window.location.origin,
+				localStorage.token ?? ''
+			);
+			fileSaver.saveAs(result.blob, result.filename);
+		} catch {
+			toast.error($i18n.t('Failed to download image'));
+		} finally {
+			downloading = false;
+		}
+	};
 
 	export let className = ` w-full ${($settings?.highContrastMode ?? false) ? '' : 'outline-hidden focus:outline-hidden'}`;
 
@@ -94,5 +115,15 @@
 				<XMark className={'size-4'} />
 			</button>
 		</div>
+	{/if}
+	{#if downloadable && !failed}
+		<button
+			type="button"
+			class="absolute bottom-2 right-2 rounded-lg bg-black/75 px-3 py-1.5 text-sm text-white"
+			disabled={downloading}
+			on:click={downloadImage}
+		>
+			{$i18n.t(downloading ? 'Downloading...' : 'Download')}
+		</button>
 	{/if}
 </div>

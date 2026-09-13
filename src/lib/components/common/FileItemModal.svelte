@@ -1,6 +1,9 @@
 <script lang="ts">
 	import type { WorkBook } from 'xlsx';
 	import DOMPurify from 'dompurify';
+	import fileSaver from 'file-saver';
+	import { toast } from 'svelte-sonner';
+	import { fetchAttachment } from '$lib/utils/attachment-download';
 
 	import { getContext, onMount, tick } from 'svelte';
 
@@ -36,6 +39,23 @@
 
 	let enableFullContent = false;
 	let loading = false;
+	let downloading = false;
+	const downloadFile = async () => {
+		if (downloading || !item?.id) return;
+		downloading = true;
+		try {
+			const result = await fetchAttachment(
+				`${WEBUI_API_BASE_URL}/files/${encodeURIComponent(item.id)}/content?attachment=true`,
+				window.location.origin,
+				localStorage.token ?? ''
+			);
+			fileSaver.saveAs(result.blob, result.filename);
+		} catch (error) {
+			toast.error($i18n.t(error instanceof Error ? error.message : 'Attachment download failed'));
+		} finally {
+			downloading = false;
+		}
+	};
 
 	let isPDF = false;
 	let isAudio = false;
@@ -255,6 +275,18 @@
 </script>
 
 <Modal bind:show size="lg">
+	{#if item?.id && (item?.type === 'file' || item?.file)}
+		<div class="px-4.5 pt-3">
+			<button
+				type="button"
+				class="rounded-lg border px-3 py-1.5 text-sm"
+				disabled={downloading}
+				on:click={downloadFile}
+			>
+				{$i18n.t(downloading ? 'Downloading...' : 'Download')}
+			</button>
+		</div>
+	{/if}
 	<div class=" px-4.5 py-3.5 w-full flex flex-col justify-center dark:text-gray-400">
 		<div class=" pb-2">
 			<div class="flex items-start justify-between">

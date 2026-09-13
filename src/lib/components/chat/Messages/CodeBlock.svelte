@@ -1,5 +1,7 @@
 <script lang="ts">
 	import hljs from 'highlight.js';
+	import fileSaver from 'file-saver';
+	import { codeDownloadName } from '$lib/utils/attachment-download';
 	import { toast } from 'svelte-sonner';
 	import { getContext, onMount, tick, onDestroy } from 'svelte';
 	import { config, pyodideWorker as pyodideWorkerStore } from '$lib/stores';
@@ -102,6 +104,13 @@
 
 	const previewCode = () => {
 		onPreview(code);
+	};
+
+	const downloadCode = () => {
+		fileSaver.saveAs(
+			new Blob([_code], { type: 'text/plain;charset=utf-8' }),
+			codeDownloadName(lang)
+		);
 	};
 
 	const checkPythonCode = (str) => {
@@ -517,6 +526,12 @@
 					<button
 						class="copy-code-button bg-none border-none transition rounded-md px-1.5 py-0.5 bg-white dark:bg-black"
 						on:click={copyCode}>{copied ? $i18n.t('Copied') : $i18n.t('Copy')}</button
+					>
+
+					<button
+						type="button"
+						class="download-code-button bg-none border-none transition rounded-md px-1.5 py-0.5 bg-white dark:bg-black"
+						on:click={downloadCode}>{$i18n.t('Download')}</button
 					>
 
 					{#if preview && ['html', 'svg'].includes(lang)}

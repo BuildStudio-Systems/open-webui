@@ -1,6 +1,8 @@
 <script lang="ts">
 	import DOMPurify from 'dompurify';
 	import { toast } from 'svelte-sonner';
+	import fileSaver from 'file-saver';
+	import { attachmentUrl, fetchAttachment } from '$lib/utils/attachment-download';
 
 	import type { Token } from 'marked';
 	import { getContext } from 'svelte';
@@ -48,7 +50,21 @@
 	/**
 	 * Handle link clicks - intercept same-origin app URLs for in-app navigation
 	 */
-	const handleLinkClick = (e: MouseEvent, href: string) => {
+	const handleLinkClick = async (e: MouseEvent, href: string) => {
+		if (attachmentUrl(href, window.location.origin)) {
+			e.preventDefault();
+			try {
+				const result = await fetchAttachment(
+					href,
+					window.location.origin,
+					localStorage.token ?? ''
+				);
+				fileSaver.saveAs(result.blob, result.filename);
+			} catch (error) {
+				toast.error($i18n.t(error instanceof Error ? error.message : 'Attachment download failed'));
+			}
+			return;
+		}
 		try {
 			const url = new URL(href, window.location.origin);
 			// Check if same origin and an in-app route
@@ -96,7 +112,7 @@
 			>
 		{/if}
 	{:else if token.type === 'image'}
-		<Image src={token.href} alt={token.text} allowExternal={true} />
+		<Image src={token.href} alt={token.text} allowExternal={true} downloadable={true} />
 	{:else if token.type === 'strong'}
 		<strong><svelte:self id={`${id}-strong`} tokens={token.tokens} {onSourceClick} /></strong>
 	{:else if token.type === 'em'}

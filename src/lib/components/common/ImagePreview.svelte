@@ -5,7 +5,7 @@
 	import fileSaver from 'file-saver';
 	const { saveAs } = fileSaver;
 
-	import { WEBUI_BASE_URL } from '$lib/constants';
+	import { fetchImageDownload } from '$lib/utils/attachment-download';
 	import PanzoomContainer from '$lib/components/common/PanzoomContainer.svelte';
 	import XMark from '$lib/components/icons/XMark.svelte';
 
@@ -75,89 +75,16 @@
 				<button
 					aria-label={$i18n.t('Download')}
 					class=" p-5 z-999"
-					on:click={() => {
-						if (src.startsWith('data:image/')) {
-							const base64Data = src.split(',')[1];
-							const blob = new Blob([Uint8Array.from(atob(base64Data), (c) => c.charCodeAt(0))], {
-								type: 'image/png'
-							});
-
-							const mimeType = blob.type || 'image/png';
-							// create file name based on the MIME type, alt should be a valid file name with extension
-							const fileName = `${$i18n
-								.t('Generated Image')
-								.toLowerCase()
-								.replace(/ /g, '_')}.${mimeType.split('/')[1]}`;
-
-							// Use FileSaver to save the blob
-							saveAs(blob, fileName);
-							return;
-						} else if (src.startsWith('blob:')) {
-							// Handle blob URLs
-							fetch(src)
-								.then((response) => response.blob())
-								.then((blob) => {
-									// detect the MIME type from the blob
-									const mimeType = blob.type || 'image/png';
-
-									// Create a new Blob with the correct MIME type
-									const blobWithType = new Blob([blob], { type: mimeType });
-
-									// create file name based on the MIME type, alt should be a valid file name with extension
-									const fileName = `${$i18n
-										.t('Generated Image')
-										.toLowerCase()
-										.replace(/ /g, '_')}.${mimeType.split('/')[1]}`;
-
-									// Use FileSaver to save the blob
-									saveAs(blobWithType, fileName);
-								})
-								.catch((error) => {
-									console.error('Error downloading blob:', error);
-								});
-							return;
-						} else if (
-							src.startsWith('/') ||
-							src.startsWith('http://') ||
-							src.startsWith('https://')
-						) {
-							// Handle remote URLs
-							const backendOrigin = new URL(WEBUI_BASE_URL || '/', window.location.origin).origin;
-							const isBackendUrl = new URL(src, window.location.origin).origin === backendOrigin;
-
-							fetch(
+					on:click={async () => {
+						try {
+							const result = await fetchImageDownload(
 								src,
-								isBackendUrl && localStorage.token
-									? { headers: { Authorization: `Bearer ${localStorage.token}` } }
-									: undefined
-							)
-								.then((response) => {
-									if (!response.ok) {
-										throw new Error(`Failed to download image: ${response.status}`);
-									}
-									return response.blob();
-								})
-								.then((blob) => {
-									// detect the MIME type from the blob
-									const mimeType = blob.type || 'image/png';
-
-									// Create a new Blob with the correct MIME type
-									const blobWithType = new Blob([blob], { type: mimeType });
-
-									// create file name based on the MIME type, alt should be a valid file name with extension
-									const fileName = `${$i18n
-										.t('Generated Image')
-										.toLowerCase()
-										.replace(/ /g, '_')}.${mimeType.split('/')[1]}`;
-
-									// Use FileSaver to save the blob
-									saveAs(blobWithType, fileName);
-								})
-								.catch((error) => {
-									console.error('Error downloading remote image:', error);
-									toast.error($i18n.t('Failed to download image'));
-								});
-							return;
+								window.location.origin,
+								localStorage.token ?? ''
+							);
+							saveAs(result.blob, result.filename);
+						} catch {
+							toast.error($i18n.t('Failed to download image'));
 						}
 					}}
 				>

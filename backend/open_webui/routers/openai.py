@@ -43,6 +43,7 @@ from open_webui.utils.access_control import check_model_access, has_connection_a
 from open_webui.utils.agent_file_delivery import (
     FILE_OWNER_HEADER,
     file_owner_headers,
+    with_agent_attachment_guidance,
     is_local_hermes_url,
 )
 from open_webui.utils.anthropic import ANTHROPIC_VERSION, get_anthropic_models, is_anthropic_url
@@ -1547,6 +1548,8 @@ async def generate_chat_completion(
         )
 
     url, key, api_config = await get_openai_connection(idx)
+
+    payload = with_agent_attachment_guidance(payload, url, user)
 
     prefix_id = api_config.get('prefix_id', None)
     payload['model'] = strip_provider_model_prefix(payload['model'], prefix_id)

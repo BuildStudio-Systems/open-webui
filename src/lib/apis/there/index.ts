@@ -93,7 +93,7 @@ export type TherePaper = {
 };
 export type ThereResearch = {
 	items: TherePaper[];
-	sources?: unknown;
+	sources?: { source: string; status: string; returned: number; retryable?: boolean }[];
 	partial?: boolean;
 };
 export type ThereOperation = {

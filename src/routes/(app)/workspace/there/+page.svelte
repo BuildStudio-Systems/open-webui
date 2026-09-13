@@ -865,13 +865,14 @@
 	});
 </script>
 
+<svelte:head><title>THERE 工作台 / Open WebUI</title></svelte:head>
+
 <div class="mx-auto w-full max-w-6xl space-y-5 px-1 py-5 sm:px-4">
 	<header class="space-y-2">
 		<p class="text-xs font-semibold uppercase tracking-widest text-gray-500">THERE / 能力工作台</p>
 		<h1 class="text-2xl font-semibold tracking-tight">知识、技能与研究，一处协作。</h1>
 		<p class="max-w-3xl text-sm leading-6 text-gray-500">
-			使用当前 THERE 账号管理知识库、审阅开源技能和检索论文。能力由 WeKnora、Agentic Awesome Skills
-			与学术数据源提供。
+			使用当前 THERE 账号管理知识库、审阅技能和检索论文。知识、技能与学术检索统一由 THERE 管理。
 		</p>
 	</header>
 	<nav
@@ -1608,6 +1609,16 @@
 				<p class="text-xs text-gray-500">
 					返回 {research.items.length} 篇文献。请阅读原文核实结论与引用。
 				</p>
+				{#if research.sources?.length}
+					<details class="text-sm">
+						<summary>数据源状态</summary>
+						<ul class="mt-2 space-y-1">
+							{#each research.sources as source}
+								<li>{source.source}：{source.status} · 返回 {source.returned} 条{source.retryable ? ' · 可稍后重试' : ''}</li>
+							{/each}
+						</ul>
+					</details>
+				{/if}
 				{#each research.items as paper}<article
 						class="space-y-2 rounded-2xl border border-gray-200 p-5 dark:border-gray-800"
 					>

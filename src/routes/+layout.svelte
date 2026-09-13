@@ -1,5 +1,6 @@
 <script>
 	import { io } from 'socket.io-client';
+	import { socketSessionAuth } from '$lib/utils/socket-session';
 	import { spring } from 'svelte/motion';
 	import { createPyodideWorker } from '$lib/pyodide/createPyodideWorker';
 	import { Toaster, toast } from 'svelte-sonner';
@@ -170,7 +171,7 @@
 			randomizationFactor: 0.5,
 			path: '/ws/socket.io',
 			transports: enableWebsocket ? ['websocket'] : ['polling', 'websocket'],
-			auth: { token: localStorage.token }
+			auth: socketSessionAuth(() => localStorage.getItem('token'))
 		});
 		await socket.set(_socket);
 

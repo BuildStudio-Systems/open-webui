@@ -19,6 +19,7 @@
 
 	import { WEBUI_API_BASE_URL, WEBUI_BASE_URL } from '$lib/constants';
 	import { WEBUI_NAME, config, user, socket } from '$lib/stores';
+	import { reconnectSessionSocket, socketSessionAuth } from '$lib/utils/socket-session';
 
 	import { generateInitialsImage, canvasPixelTest, getUserTimezone } from '$lib/utils';
 
@@ -46,12 +47,23 @@
 
 	const setSessionUser = async (sessionUser, redirectPath: string | null = null) => {
 		if (sessionUser) {
-			console.log(sessionUser);
-			toast.success(`You're now logged in.`);
 			if (sessionUser.token) {
 				localStorage.token = sessionUser.token;
 			}
-			$socket.emit('user-join', { auth: { token: sessionUser.token } });
+			if (!$socket) {
+				toast.error($i18n.t('Connection lost. Reconnecting...'));
+				return;
+			}
+			if ($socket) {
+				$socket.auth = socketSessionAuth(() => localStorage.getItem('token'));
+				try {
+					await reconnectSessionSocket($socket);
+				} catch {
+					toast.error($i18n.t('Connection lost. Reconnecting...'));
+					return;
+				}
+			}
+			toast.success(`You're now logged in.`);
 			await user.set(sessionUser);
 			await config.set(await getBackendConfig());
 

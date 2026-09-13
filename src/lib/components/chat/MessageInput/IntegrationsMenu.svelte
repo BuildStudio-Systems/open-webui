@@ -419,6 +419,13 @@
 						</Tooltip>
 					{/if}
 
+					{#if !showWebSearchButton}
+						<div class="px-2 py-2 text-xs text-gray-500" role="note">
+							<div class="flex items-center gap-2"><GlobeAlt />{$i18n.t('Web Search')}</div>
+							<p class="mt-1 whitespace-normal">{$i18n.t('The web search switch is unavailable for this model or account, or is disabled by the administrator. Agent tools and academic search are configured separately.')}</p>
+						</div>
+					{/if}
+
 					{#if showImageGenerationButton}
 						<Tooltip content={$i18n.t('Generate an image')} placement="top-start">
 							<button

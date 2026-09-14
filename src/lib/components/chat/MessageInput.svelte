@@ -737,12 +737,7 @@
 	export let placeholder = '';
 
 	type ModelCapability =
-		| 'vision'
-		| 'file_upload'
-		| 'web_search'
-		| 'image_generation'
-		| 'code_interpreter'
-		| 'terminal';
+		'vision' | 'file_upload' | 'web_search' | 'image_generation' | 'code_interpreter' | 'terminal';
 	type ModelCapabilitiesById = Record<string, Partial<Record<ModelCapability, boolean>>>;
 
 	let modelCapabilitiesById: ModelCapabilitiesById = {};
@@ -2191,6 +2186,20 @@
 								</div>
 							</div>
 
+							{#if thinkingModeAvailable}
+								<!-- Keep all four stops outside the scrolling tool strip. -->
+								<div class="mx-2 mt-1 flex justify-end">
+									<ThinkingSelector
+										mode={thinkingMode}
+										disabled={generating}
+										onChange={async (mode) => {
+											thinkingMode = mode;
+											await onThinkingModeChange(mode);
+										}}
+									/>
+								</div>
+							{/if}
+
 							<div class=" flex justify-between mt-0.5 mb-2 mx-0.5 max-w-full" dir="ltr">
 								<div class="ml-1 self-end flex items-center flex-1 min-w-0">
 									<InputMenu
@@ -2316,14 +2325,22 @@
 											</IntegrationsMenu>
 										{/if}
 
-										<Tooltip content={showWebSearchButton ? $i18n.t('Web Search') : $i18n.t('Web search is currently unavailable')} placement="top">
+										<Tooltip
+											content={showWebSearchButton
+												? $i18n.t('Web Search')
+												: $i18n.t('Web search is currently unavailable')}
+											placement="top"
+										>
 											<button
 												type="button"
 												id="web-search-button"
 												aria-label={$i18n.t('Web Search')}
 												aria-pressed={Boolean(showWebSearchButton && webSearchEnabled)}
 												disabled={!showWebSearchButton || generating}
-												class="ml-1 rounded-full size-[1.875rem] flex items-center justify-center shrink-0 disabled:opacity-40 {showWebSearchButton && webSearchEnabled ? 'text-sky-500 dark:text-sky-300 bg-sky-100 dark:bg-sky-400/15' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'}"
+												class="ml-1 rounded-full size-[1.875rem] flex items-center justify-center shrink-0 disabled:opacity-40 {showWebSearchButton &&
+												webSearchEnabled
+													? 'text-sky-500 dark:text-sky-300 bg-sky-100 dark:bg-sky-400/15'
+													: 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'}"
 												on:click={() => {
 													webSearchEnabled = !webSearchEnabled;
 													onWebSearchToggle(webSearchEnabled);
@@ -2332,19 +2349,6 @@
 												<GlobeAlt className="size-4.5" strokeWidth="1.75" />
 											</button>
 										</Tooltip>
-
-										{#if thinkingModeAvailable}
-											<div class="ml-1 flex shrink-0">
-												<ThinkingSelector
-													mode={thinkingMode}
-													disabled={generating}
-													onChange={async (mode) => {
-														thinkingMode = mode;
-														await onThinkingModeChange(mode);
-													}}
-												/>
-											</div>
-										{/if}
 
 										{#if selectedModelIds.length === 1 && $models.find((m) => m.id === selectedModelIds[0])?.has_user_valves}
 											<div class="ml-1 flex gap-1.5 shrink-0">

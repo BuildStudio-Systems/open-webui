@@ -89,6 +89,41 @@ export const getThinkingModeFromParams = (params: any = {}): ThinkingMode => {
 	return templateParams?.enable_thinking === true ? 'low' : 'off';
 };
 
+// Only this chat's parameters and its own scoped draft may select a mode.
+// Account-wide settings and the shared home-page draft are deliberately ignored
+// when resolving the default: a new chat always starts at Fast (off).
+export const resolveChatThinkingMode = ({
+	params = {},
+	draftMode,
+	hasChatId = false
+}: {
+	params?: unknown;
+	// Accepted explicitly at the policy boundary, but never used as a selection.
+	globalParams?: unknown;
+	draftMode?: unknown;
+	hasChatId?: boolean;
+} = {}): ThinkingMode => {
+	if (hasChatId && draftMode != null) {
+		return normalizeThinkingMode(draftMode);
+	}
+
+	return getThinkingModeFromParams(params);
+};
+
+// Creating an embedded chat returns server-owned params, but must not replace
+// a slider choice the user already made while composing its first message.
+export const preserveThinkingModeForCreatedChat = (
+	createdParams: unknown,
+	currentParams: unknown
+) => {
+	const nextParams = toPlainObject(createdParams);
+	const localParams = toPlainObject(currentParams);
+	if (Object.prototype.hasOwnProperty.call(localParams, THINKING_MODE_PARAM)) {
+		nextParams[THINKING_MODE_PARAM] = normalizeThinkingMode(localParams[THINKING_MODE_PARAM]);
+	}
+	return nextParams;
+};
+
 export const stripThinkingParams = (params: any = {}) => {
 	const nextParams = toPlainObject(params);
 	delete nextParams[THINKING_MODE_PARAM];

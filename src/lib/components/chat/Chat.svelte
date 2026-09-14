@@ -71,9 +71,10 @@
 	import { applyResponseStreamEvent, getOutputText } from './Messages/structuredOutput';
 	import {
 		applyThinkingModeToParams,
-		getThinkingModeFromParams,
+		resolveChatThinkingMode,
 		mergeChatParams,
 		modelSupportsThinking,
+		preserveThinkingModeForCreatedChat,
 		setThinkingModeInParams,
 		stripThinkingModeParam,
 		type ThinkingMode
@@ -433,7 +434,9 @@
 		(params?.tool_approval_mode ?? $settings?.params?.tool_approval_mode) === 'ask'
 			? 'ask'
 			: 'full';
-	$: thinkingMode = getThinkingModeFromParams(mergeChatParams($settings?.params, params));
+	// Thinking belongs to this chat. A previous global setting must never turn
+	// reasoning on for a new chat, whose default is the Fast (off) slider stop.
+	$: thinkingMode = resolveChatThinkingMode({ params, globalParams: $settings?.params });
 
 	const handleThinkingModeChange = (mode: ThinkingMode) => {
 		params = setThinkingModeInParams(params, mode);
@@ -774,8 +777,17 @@
 				: DEFAULT_WEB_SEARCH_ENABLED;
 			imageGenerationEnabled = input.imageGenerationEnabled ?? false;
 			codeInterpreterEnabled = input.codeInterpreterEnabled ?? false;
+			// The unscoped home-page draft can come from a previous conversation.
+			// Restore a thinking selection only for this existing chat's own draft.
 			if (input.thinkingMode) {
-				handleThinkingModeChange(input.thinkingMode);
+				handleThinkingModeChange(
+					resolveChatThinkingMode({
+						params,
+						globalParams: $settings?.params,
+						draftMode: input.thinkingMode,
+						hasChatId: Boolean(chatIdProp)
+					})
+				);
 			}
 			if (input.toolApprovalMode) {
 				await handleToolApprovalModeChange(input.toolApprovalMode);
@@ -3312,7 +3324,10 @@
 				await chatId.set(_chatId);
 				await chatTitle.set(createdChat?.chat?.title ?? createdChat?.title ?? $i18n.t('Chat'));
 
-				params = structuredClone(createdChat?.chat?.params ?? {});
+				params = preserveThinkingModeForCreatedChat(
+					structuredClone(createdChat?.chat?.params ?? {}),
+					params
+				);
 				delete params.note_id;
 				chatFiles = mergeFiles(chatFiles, createdChat?.chat?.files ?? []);
 				await onSelectEmbeddedChat?.(_chatId);

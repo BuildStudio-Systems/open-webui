@@ -1,4 +1,13 @@
 {
+	"Fastest · direct answers": "最快响应 · 不启用思考",
+	"Quick reasoning · everyday tasks": "轻度思考 · 日常任务",
+	"Balanced · complex questions": "均衡思考 · 复杂问题",
+	"Deep reasoning · slowest": "深入思考 · 耗时较长",
+	"Thinking level": "思考强度",
+	"Thinking level: Fast": "快速",
+	"Thinking level: Light": "轻度",
+	"Thinking level: Medium": "中等",
+	"Thinking level: Advanced": "高级",
 	"-1 for no limit, or a positive integer for a specific limit": "-1 表示无限制，正整数表示具体限制额度",
 	"(latest)": "（最新版）",
 	"(leave blank for to use commercial endpoint)": "（留空以使用商用端点）",

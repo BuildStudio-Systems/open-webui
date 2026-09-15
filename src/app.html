@@ -112,6 +112,8 @@
 		<title>BuildStudio-There</title>
 
 		%sveltekit.head%
+		<!-- Keep the language menu usable above connection notifications. -->
+		<style id="studio-language-layer">.studio-global-language{z-index:2147483000!important}</style>
 	</head>
 
 	<body data-sveltekit-preload-data="hover">

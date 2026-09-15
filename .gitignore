@@ -311,3 +311,7 @@ cypress/videos
 cypress/screenshots
 .vscode/settings.json
 .cptr
+
+# Generated public preview builds
+/preview-dist/
+/preview-build.log

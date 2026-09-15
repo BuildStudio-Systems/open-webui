@@ -39,7 +39,7 @@
   <option value="/admin/users/overview">Administration · users</option><option value="/admin/users/groups">Administration · groups</option><option value="/admin/evaluations">Administration · evaluations</option><option value="/admin/analytics">Administration · analytics</option><option value="/admin/functions">Administration · functions</option><option value="/admin/settings/general">Administration · settings</option>
   <option value="/?settings=account">Account settings</option>
 </select></label></nav>
-<div data-preview-route={loadedPath} class="flex w-full h-[calc(100dvh-86px)] overflow-hidden bg-white text-gray-900 dark:bg-gray-900 dark:text-gray-100">
+<div data-preview-route={loadedPath} style="height:calc(100dvh - 86px)" class="flex w-full overflow-hidden bg-white text-gray-900 dark:bg-gray-900 dark:text-gray-100">
   <Sidebar />
   {#if error}<main class="p-10">{error}</main>
   {:else if Component}

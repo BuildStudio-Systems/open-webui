@@ -9,6 +9,7 @@ const createI18nStore = (i18n: i18nType) => {
 
 	i18n.on('initialized', () => {
 		i18nWritable.set(i18n);
+    if(typeof window !== 'undefined' && window.parent !== window)window.parent.postMessage({type:'buildstudio:ready'},window.location.origin);
 	});
 	i18n.on('loaded', () => {
 		i18nWritable.set(i18n);
@@ -18,6 +19,7 @@ const createI18nStore = (i18n: i18nType) => {
 		i18nWritable.set(i18n);
 		if (typeof document !== 'undefined') {
 			document.documentElement.setAttribute('lang', lang);
+      if (i18n.isInitialized && window.parent !== window) window.parent.postMessage({type:'buildstudio:locale',locale:lang.startsWith('ja')?'ja':lang.startsWith('zh')?'zh':'en'},window.location.origin);
 		}
 	});
 	return i18nWritable;
@@ -41,10 +43,8 @@ const createIsLoadingStore = (i18n: i18nType) => {
 };
 
 export const initI18n = (defaultLocale?: string | undefined) => {
-	const detectionOrder = defaultLocale
-		? ['querystring', 'localStorage']
-		: ['querystring', 'localStorage', 'navigator'];
-	const fallbackDefaultLocale = defaultLocale ? [defaultLocale] : ['en-US'];
+	const detectionOrder = ['querystring', 'localStorage'];
+	const fallbackDefaultLocale = ['en-US'];
 
 	const loadResource = (language: string, namespace: string) =>
 		import(`./locales/${language}/${namespace}.json`);
@@ -54,11 +54,14 @@ export const initI18n = (defaultLocale?: string | undefined) => {
 		.use(LanguageDetector)
 		.init({
 			debug: false,
+			supportedLngs: ['en-US','ja-JP','zh-CN'],
+			load: 'currentOnly',
 			detection: {
 				order: detectionOrder,
 				caches: ['localStorage'],
 				lookupQuerystring: 'lang',
-				lookupLocalStorage: 'locale'
+				lookupLocalStorage: 'locale',
+        convertDetectedLanguage: (raw: string) => raw.startsWith('ja') ? 'ja-JP' : raw.startsWith('zh') ? 'zh-CN' : 'en-US'
 			},
 			fallbackLng: {
 				fr: ['fr-FR'],
@@ -78,13 +81,18 @@ const i18n = createI18nStore(i18next);
 const isLoadingStore = createIsLoadingStore(i18next);
 
 export const getLanguages = async () => {
-	const languages = (await import(`./locales/languages.json`)).default;
+	const languages = (await import(`./locales/languages.json`)).default.filter((l) => ['en-US','ja-JP','zh-CN'].includes(l.code));
 	return languages;
 };
-export const changeLanguage = (lang: string) => {
-	document.documentElement.setAttribute('lang', lang);
-	i18next.changeLanguage(lang);
+export const changeLanguage = (raw: string) => {
+  const lang = raw.startsWith('ja') ? 'ja-JP' : raw.startsWith('zh') ? 'zh-CN' : 'en-US';
+  try { localStorage.setItem('locale',lang) } catch { /* Optional persistence. */ }
+  if (i18next.language !== lang) void i18next.changeLanguage(lang);
 };
+if (typeof window !== 'undefined') window.addEventListener('message', (event) => {
+  if (event.source !== window.parent || event.origin !== window.location.origin || event.data?.type !== 'buildstudio:locale' || !['en','ja','zh'].includes(event.data.locale)) return;
+  changeLanguage(event.data.locale);
+});
 
 export default i18n;
 export const isLoading = isLoadingStore;

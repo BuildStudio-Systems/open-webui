@@ -1,4 +1,5 @@
 <script lang="ts">
+  import i18n from '$lib/i18n';
 	import { onMount, onDestroy } from 'svelte';
 	import {
 		getThereWikiPages,
@@ -142,7 +143,7 @@
 	}
 	async function remove() {
 		if (!canWrite || busy || loading || !selected) return;
-		if (!window.confirm(`确定删除 Wiki 页面“${selected.title}”？该操作不能从此界面撤销。`)) return;
+		if (!window.confirm($i18n.t("确定删除 Wiki 页面“{{value0}}”？该操作不能从此界面撤销。", {value0: selected.title}))) return;
 		const signature = JSON.stringify([knowledgeId, 'delete', selected.slug]);
 		busy = true;
 		error = '';
@@ -162,12 +163,12 @@
 	}
 </script>
 
-<section class="min-w-0 space-y-3" aria-label="Wiki 知识页面">
+<section class="min-w-0 space-y-3" aria-label="{$i18n.t("Wiki 知识页面")}">
 	<div class="flex flex-wrap items-center justify-between gap-2">
-		<h3 class="text-sm font-semibold">Wiki 知识页面</h3>
+		<h3 class="text-sm font-semibold">{$i18n.t("Wiki 知识页面")}</h3>
 		<div class="flex flex-wrap gap-2">
 			<button type="button" class={buttonClass} disabled={busy || loading} on:click={() => load(1)}
-				>刷新列表</button
+				>{$i18n.t("刷新列表")}</button
 			>
 			{#if canWrite}<button
 					type="button"
@@ -176,7 +177,7 @@
 					on:click={() => {
 						if (
 							(creating || selected) &&
-							!window.confirm('新建页面将放弃当前未保存的编辑，是否继续？')
+							!window.confirm($i18n.t("新建页面将放弃当前未保存的编辑，是否继续？"))
 						)
 							return;
 						creating = true;
@@ -185,27 +186,25 @@
 						slug = '';
 						content = '';
 						notice = '';
-					}}>新建草稿</button
+					}}>{$i18n.t("新建草稿")}</button
 				>{/if}
 		</div>
 	</div>
-	<p class="text-xs leading-5 text-gray-500">
-		使用 THERE 知识库权限。未配置 Wiki 的知识库会提示不可用；页面链接不等于 GraphRAG 已启用。
-	</p>
+	<p class="text-xs leading-5 text-gray-500">{$i18n.t("使用 THERE 知识库权限。未配置 Wiki 的知识库会提示不可用；页面链接不等于 GraphRAG 已启用。")}</p>
 	{#if error}<p role="alert" class="whitespace-pre-wrap break-words text-sm text-red-600">
-			{error}
+			{$i18n.t(error)}
 		</p>{/if}
-	{#if notice}<p role="status" class="text-sm text-green-700 dark:text-green-400">{notice}</p>{/if}
+	{#if notice}<p role="status" class="text-sm text-green-700 dark:text-green-400">{$i18n.t(notice)}</p>{/if}
 	<form class="flex gap-2" on:submit|preventDefault={() => load(1, true)}>
 		<input
-			aria-label="搜索 Wiki 页面"
+			aria-label="{$i18n.t("搜索 Wiki 页面")}"
 			class={inputClass}
 			bind:value={query}
 			maxlength="2000"
 			disabled={busy || loading}
-			placeholder="搜索 Wiki 页面"
+			placeholder="{$i18n.t("搜索 Wiki 页面")}"
 		/>
-		<button class={buttonClass} disabled={busy || loading || !query.trim()}>搜索</button>
+		<button class={buttonClass} disabled={busy || loading || !query.trim()}>{$i18n.t("搜索")}</button>
 	</form>
 	<div class="grid min-w-0 gap-4 lg:grid-cols-2">
 		<div class="min-w-0 space-y-2">
@@ -217,32 +216,32 @@
 					on:click={() => open(entry)}
 				>
 					<span class="block font-medium">{entry.title || entry.slug}</span>
-					<span class="text-xs text-gray-500">{entry.slug} · {entry.status ?? '状态未知'}</span>
+					<span class="text-xs text-gray-500">{entry.slug} · {entry.status ?? $i18n.t("状态未知")}</span>
 				</button>
 			{/each}
 			{#if !error && !pages.length}<p class="text-sm text-gray-500">
-					{loading ? '加载中…' : '暂无匹配页面。'}
+					{loading ? $i18n.t("加载中…") : $i18n.t("暂无匹配页面。")}
 				</p>{/if}
 			{#if !filtered && (page > 1 || hasMore)}<div class="flex items-center gap-2">
 					<button
 						type="button"
 						class={buttonClass}
 						disabled={busy || loading || page === 1}
-						on:click={() => load(page - 1)}>上一页</button
+						on:click={() => load(page - 1)}>{$i18n.t("上一页")}</button
 					>
-					<span class="text-xs">第 {page} 页</span>
+					<span class="text-xs">{$i18n.t("第")}{page}{$i18n.t("页")}</span>
 					<button
 						type="button"
 						class={buttonClass}
 						disabled={busy || loading || !hasMore}
-						on:click={() => load(page + 1)}>下一页</button
+						on:click={() => load(page + 1)}>{$i18n.t("下一页")}</button
 					>
 				</div>{/if}
 		</div>
 		{#if selected || creating}<form class="min-w-0 space-y-3" on:submit|preventDefault={save}>
 				{#if creating}
 					<label class="block text-sm"
-						>标题<input
+						>{$i18n.t("标题")}<input
 							class={inputClass}
 							bind:value={title}
 							maxlength="512"
@@ -251,7 +250,7 @@
 						/></label
 					>
 					<label class="block text-sm"
-						>页面标识<input
+						>{$i18n.t("页面标识")}<input
 							class={inputClass}
 							bind:value={slug}
 							maxlength="512"
@@ -261,10 +260,10 @@
 						/></label
 					>
 				{:else}<h4 class="break-words text-sm font-medium">
-						{selected?.title} · 版本 {selected?.version ?? '未知'}
+						{selected?.title}{$i18n.t("· 版本")}{selected?.version ?? $i18n.t("未知")}
 					</h4>{/if}
 				<label class="block text-sm"
-					>Markdown 正文<textarea
+					>{$i18n.t("Markdown 正文")}<textarea
 						class="{inputClass} font-mono"
 						bind:value={content}
 						rows="12"
@@ -282,13 +281,13 @@
 								!content.trim() ||
 								(!creating &&
 									(!Number.isInteger(selected?.version) || (selected?.version ?? 0) < 1))}
-							>保存</button
+							>{$i18n.t("保存")}</button
 						>
 						{#if selected}<button
 								type="button"
 								class={buttonClass}
 								disabled={busy || loading}
-								on:click={remove}>删除页面</button
+								on:click={remove}>{$i18n.t("删除页面")}</button
 							>{/if}
 					</div>{/if}
 			</form>{/if}

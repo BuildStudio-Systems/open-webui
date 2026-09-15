@@ -237,7 +237,6 @@
 	};
 
 	onMount(async () => {
-		await changeLanguage('en-US');
 
 		if ($user === undefined || $user === null) {
 			await gotoAuth();

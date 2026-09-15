@@ -45,7 +45,8 @@
 	import { beforeNavigate } from '$app/navigation';
 	import { updated } from '$app/state';
 
-	import i18n, { initI18n, getLanguages, changeLanguage } from '$lib/i18n';
+	import StudioLanguagePicker from '$lib/components/common/StudioLanguagePicker.svelte';
+	import i18n, { initI18n } from '$lib/i18n';
 
 	import '../tailwind.css';
 	import '../app.css';
@@ -65,7 +66,6 @@
 
 	import { WEBUI_API_BASE_URL, WEBUI_BASE_URL } from '$lib/constants';
 	import {
-		bestMatchingLanguage,
 		cleanText,
 		displayFileHandler,
 		getUserTimezone,
@@ -1238,18 +1238,8 @@
 		// Initialize i18n even if we didn't get a backend config,
 		// so `/error` can show something that's not `undefined`.
 
-		initI18n(localStorage?.locale);
-		if (!localStorage.locale) {
-			const languages = await getLanguages();
-			const browserLanguages = navigator.languages
-				? navigator.languages
-				: [navigator.language || navigator.userLanguage];
-			const lang = backendConfig?.default_locale
-				? backendConfig.default_locale
-				: bestMatchingLanguage(languages, browserLanguages, 'en-US');
-			changeLanguage(lang);
-			dayjs.locale(lang);
-		}
+		initI18n();
+		dayjs.locale(localStorage.getItem('locale') || 'en-US');
 
 		if (backendConfig) {
 			// Save Backend Status to Store
@@ -1403,6 +1393,8 @@
 	{/if}
 </a>
 
+<div class="studio-global-language"><StudioLanguagePicker /></div>
+
 {#if showRefresh}
 	<div class=" py-5">
 		<Spinner className="size-5" />
@@ -1445,3 +1437,10 @@
 		}
 	}}
 />
+
+<style>
+.studio-global-language{position:fixed;top:0;right:0;left:0;height:44px;display:flex;justify-content:flex-end;align-items:center;padding:4px 16px;background:var(--color-gray-900,#101828);color:#f1f5f9;z-index:1000;border-bottom:1px solid #63718a33}
+:global(body){padding-top:44px}
+:global(.h-screen),:global(.h-dvh){height:calc(100dvh - 44px)}
+:global(.min-h-screen){min-height:calc(100dvh - 44px)}
+</style>

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import i18n from '$lib/i18n';
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import { user } from '$lib/stores';
@@ -341,7 +342,7 @@
 		if (
 			!item ||
 			knowledgeBusy ||
-			!window.confirm(`确认删除知识库“${item.name}”及其中的文档和索引？此操作无法撤销。`)
+			!window.confirm($i18n.t("确认删除知识库“{{value0}}”及其中的文档和索引？此操作无法撤销。", {value0: item.name}))
 		)
 			return;
 		knowledgeBusy = true;
@@ -404,7 +405,7 @@
 		if (
 			!item ||
 			knowledgeBusy ||
-			!window.confirm(`确认永久删除文档“${document.title || document.file_name || document.id}”？`)
+			!window.confirm($i18n.t("确认永久删除文档“{{value0}}”？", {value0: document.title || document.file_name || document.id}))
 		)
 			return;
 		knowledgeBusy = true;
@@ -512,7 +513,7 @@
 		}
 		if (
 			faqEditingId &&
-			!window.confirm(`确认更新问答“${payload.question}”？更新后的问题与答案将影响后续检索。`)
+			!window.confirm($i18n.t("确认更新问答“{{value0}}”？更新后的问题与答案将影响后续检索。", {value0: payload.question}))
 		)
 			return;
 		knowledgeBusy = true;
@@ -538,7 +539,7 @@
 			!kb ||
 			knowledgeBusy ||
 			!window.confirm(
-				`确认删除问答“${entry.standard_question}”？问题与答案将不再参与检索，此操作无法撤销。`
+				$i18n.t("确认删除问答“{{value0}}”？问题与答案将不再参与检索，此操作无法撤销。", {value0: entry.standard_question})
 			)
 		)
 			return;
@@ -634,7 +635,7 @@
 			return;
 		if (
 			!window.confirm(
-				`确认修改当前片段（版本 ${chunk.content_revision}）？修改将更新检索内容，旧版本会保留在版本记录中。`
+				$i18n.t("确认修改当前片段（版本 {{value0}}）？修改将更新检索内容，旧版本会保留在版本记录中。", {value0: chunk.content_revision})
 			)
 		)
 			return;
@@ -679,7 +680,7 @@
 			return;
 		if (
 			!window.confirm(
-				`确认将片段恢复为指定历史版本 ${revision.revision} 的内容？当前版本为 ${chunk.content_revision}。这将改变后续检索内容，并产生一个新版本。`
+				$i18n.t("确认将片段恢复为指定历史版本 {{value0}} 的内容？当前版本为 {{value1}}。这将改变后续检索内容，并产生一个新版本。", {value0: revision.revision, value1: chunk.content_revision})
 			)
 		)
 			return;
@@ -700,7 +701,7 @@
 						key
 					)
 			);
-			notice = `片段已恢复为历史版本 ${revision.revision} 的内容，索引正在更新。`;
+			notice = $i18n.t("片段已恢复为历史版本 {{value0}} 的内容，索引正在更新。", {value0: revision.revision});
 			await loadChunks();
 		} catch (error) {
 			setError('knowledge', error);
@@ -714,7 +715,7 @@
 			!kb ||
 			knowledgeBusy ||
 			!window.confirm(
-				`确认重新解析“${document.title || document.file_name || document.id}”？重新解析可能替换当前分块和人工编辑内容，并重建索引。`
+				$i18n.t("确认重新解析“{{value0}}”？重新解析可能替换当前分块和人工编辑内容，并重建索引。", {value0: document.title || document.file_name || document.id})
 			)
 		)
 			return;
@@ -777,7 +778,7 @@
 			const result = await writeIntent('activate-skill', [skill.id, skill.digest], (key) =>
 				activateThereSkill(localStorage.token, skill.id, skill.digest, key)
 			);
-			notice = `“${result.name}”已导入个人技能。在“技能”工作区管理，并在对话中选用。`;
+			notice = $i18n.t("“{{value0}}”已导入个人技能。在“技能”工作区管理，并在对话中选用。", {value0: result.name});
 			reviewed = false;
 		} catch (error) {
 			setError('skills', error);
@@ -865,18 +866,16 @@
 	});
 </script>
 
-<svelte:head><title>THERE 工作台 / Open WebUI</title></svelte:head>
+<svelte:head><title>{$i18n.t("THERE 工作台 / Open WebUI")}</title></svelte:head>
 
 <div class="mx-auto w-full max-w-6xl space-y-5 px-1 py-5 sm:px-4">
 	<header class="space-y-2">
-		<p class="text-xs font-semibold uppercase tracking-widest text-gray-500">THERE / 能力工作台</p>
-		<h1 class="text-2xl font-semibold tracking-tight">知识、技能与研究，一处协作。</h1>
-		<p class="max-w-3xl text-sm leading-6 text-gray-500">
-			使用当前 THERE 账号管理知识库、审阅技能和检索论文。知识、技能与学术检索统一由 THERE 管理。
-		</p>
+		<p class="text-xs font-semibold uppercase tracking-widest text-gray-500">{$i18n.t("THERE / 能力工作台")}</p>
+		<h1 class="text-2xl font-semibold tracking-tight">{$i18n.t("知识、技能与研究，一处协作。")}</h1>
+		<p class="max-w-3xl text-sm leading-6 text-gray-500">{$i18n.t("使用当前 THERE 账号管理知识库、审阅技能和检索论文。知识、技能与学术检索统一由 THERE 管理。")}</p>
 	</header>
 	<nav
-		aria-label="THERE 能力分类"
+		aria-label="{$i18n.t("THERE 能力分类")}"
 		class="flex gap-1 overflow-x-auto border-b border-gray-100 pb-2 dark:border-gray-800"
 	>
 		{#each sections.filter((item) => item.id !== 'admin-history' || $user?.role === 'admin') as item}
@@ -886,7 +885,7 @@
 				on:click={() => selectSection(item.id)}
 				class="whitespace-nowrap rounded-xl px-4 py-2 text-sm font-medium {section === item.id
 					? 'bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-white'
-					: 'text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-850'}">{item.label}</button
+					: 'text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-850'}">{$i18n.t(item.label)}</button
 			>
 		{/each}
 	</nav>
@@ -895,9 +894,9 @@
 			role="status"
 			class="flex items-start justify-between gap-3 rounded-xl bg-green-50 px-4 py-3 text-sm text-green-800 dark:bg-green-950/30 dark:text-green-300"
 		>
-			<span>{notice}</span><button
+			<span>{$i18n.t(notice)}</span><button
 				type="button"
-				aria-label="关闭提示"
+				aria-label="{$i18n.t("关闭提示")}"
 				on:click={() => (notice = '')}>×</button
 			>
 		</div>
@@ -907,7 +906,7 @@
 			role="alert"
 			class="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-300"
 		>
-			{errors[section]}
+			{$i18n.t(errors[section])}
 		</div>
 	{/if}
 
@@ -918,26 +917,23 @@
 	{:else if section === 'knowledge'}
 		<p
 			class="rounded-xl bg-gray-50 px-4 py-3 text-sm leading-6 text-gray-600 dark:bg-gray-850 dark:text-gray-300"
-		>
-			这里创建的知识库会同步到 THERE 原生知识管理。在普通对话或 Agent
-			对话中，通过附件菜单的知识选择加入知识库，即可基于其内容检索和回答。
-		</p>
+		>{$i18n.t("这里创建的知识库会同步到 THERE 原生知识管理。在普通对话或 Agent 对话中，通过附件菜单的知识选择加入知识库，即可基于其内容检索和回答。")}</p>
 		<div class="grid gap-5 lg:grid-cols-[280px_minmax(0,1fr)]">
 			<aside class="space-y-3">
 				<div class="flex items-center justify-between">
-					<h2 class="font-semibold">我的知识库</h2>
+					<h2 class="font-semibold">{$i18n.t("我的知识库")}</h2>
 					<button
 						type="button"
 						class="text-sm text-gray-500"
 						disabled={knowledgeLoading || knowledgeBusy}
-						on:click={loadKnowledge}>{knowledgeLoading ? '刷新中…' : '刷新'}</button
+						on:click={loadKnowledge}>{knowledgeLoading ? $i18n.t("刷新中…") : $i18n.t("刷新")}</button
 					>
 				</div>
 				{#if canManageKnowledge}<button
 						type="button"
 						class="{secondaryClass} w-full"
 						aria-expanded={showCreate}
-						on:click={() => (showCreate = !showCreate)}>＋ 新建知识库</button
+						on:click={() => (showCreate = !showCreate)}>{$i18n.t("＋ 新建知识库")}</button
 					>{/if}
 				{#if showCreate && canManageKnowledge}
 					<form
@@ -945,51 +941,48 @@
 						class="space-y-3 rounded-2xl border border-gray-200 p-3 dark:border-gray-800"
 					>
 						<label class="block space-y-1 text-sm"
-							><span>名称</span><input
+							><span>{$i18n.t("名称")}</span><input
 								class={inputClass}
 								bind:value={newName}
 								required
 								maxlength="128"
 								disabled={knowledgeBusy}
-								placeholder="例如：研发资料"
+								placeholder="{$i18n.t("例如：研发资料")}"
 							/></label
 						>
 						<label class="block space-y-1 text-sm"
-							><span>说明</span><textarea
+							><span>{$i18n.t("说明")}</span><textarea
 								class={inputClass}
 								bind:value={newDescription}
 								rows="2"
 								maxlength="2000"
 								disabled={knowledgeBusy}
-								placeholder="这份知识库用于什么？"
+								placeholder="{$i18n.t("这份知识库用于什么？")}"
 							></textarea></label
 						>
 						<label class="block space-y-1 text-sm"
-							><span>类型</span><select
+							><span>{$i18n.t("类型")}</span><select
 								class={inputClass}
 								bind:value={newBaseType}
 								disabled={knowledgeBusy}
-								><option value="document">文档知识库</option><option value="faq"
-									>问答知识库（FAQ）</option
+								><option value="document">{$i18n.t("文档知识库")}</option><option value="faq"
+									>{$i18n.t("问答知识库（FAQ）")}</option
 								></select
 							></label
 						>
 						<button class={primaryClass} disabled={knowledgeBusy || !newName.trim()}
-							>{knowledgeBusy ? '创建中…' : '创建'}</button
+							>{knowledgeBusy ? $i18n.t("创建中…") : $i18n.t("创建")}</button
 						>
 					</form>
 				{/if}
 				{#if knowledgeLoading && !knowledge.length}<p
 						role="status"
 						class="py-5 text-sm text-gray-500"
-					>
-						正在加载知识库…
-					</p>{:else if !knowledge.length}<p
+					>{$i18n.t("正在加载知识库…")}</p>{:else if !knowledge.length}<p
 						class="rounded-2xl bg-gray-50 p-4 text-sm leading-6 text-gray-500 dark:bg-gray-850"
-					>
-						还没有可访问的知识库。{canManageKnowledge
-							? '创建一个知识库，开始整理资料。'
-							: '请联系管理员开通知识库权限。'}
+					>{$i18n.t("还没有可访问的知识库。")}{canManageKnowledge
+							? $i18n.t("创建一个知识库，开始整理资料。")
+							: $i18n.t("请联系管理员开通知识库权限。")}
 					</p>{/if}
 				<div class="max-h-[480px] space-y-2 overflow-y-auto">
 					{#each knowledge as item (item.id)}
@@ -1003,7 +996,7 @@
 								? 'border-gray-500 bg-gray-50 dark:bg-gray-850'
 								: 'border-gray-100 hover:border-gray-300 dark:border-gray-800'}"
 							><span class="mb-1 block text-xs text-gray-400"
-								>{(item.base_type ?? item.type) === 'faq' ? '问答 / FAQ' : '文档'}</span
+								>{(item.base_type ?? item.type) === 'faq' ? $i18n.t("问答 / FAQ") : $i18n.t("文档")}</span
 							><span class="block break-words text-sm font-medium">{item.name}</span
 							>{#if item.description}<span
 									class="mt-1 block line-clamp-2 text-xs leading-5 text-gray-500"
@@ -1018,9 +1011,9 @@
 					<div class="flex flex-wrap items-start justify-between gap-3">
 						<div>
 							<h2 class="break-words text-xl font-semibold">{selectedKnowledge.name}</h2>
-							<p class="mt-1 text-xs text-gray-400">{isFaq ? '问答知识库 / FAQ' : '文档知识库'}</p>
+							<p class="mt-1 text-xs text-gray-400">{isFaq ? $i18n.t("问答知识库 / FAQ") : $i18n.t("文档知识库")}</p>
 							<p class="mt-1 text-sm text-gray-500">
-								{selectedKnowledge.description || '上传资料后，可以在这里检验检索结果。'}
+								{selectedKnowledge.description || $i18n.t("上传资料后，可以在这里检验检索结果。")}
 							</p>
 						</div>
 						{#if canManageKnowledge}<button
@@ -1028,16 +1021,16 @@
 								on:click={removeKnowledge}
 								disabled={knowledgeBusy}
 								class="rounded-lg px-2 py-1 text-sm text-red-600 disabled:opacity-40"
-								>删除知识库</button
+								>{$i18n.t("删除知识库")}</button
 							>{/if}
 					</div>
 					{#if canManageKnowledge && !isFaq}
 						<details class="rounded-2xl border border-gray-200 p-4 dark:border-gray-800">
-							<summary class="cursor-pointer text-sm font-medium">添加资料</summary>
+							<summary class="cursor-pointer text-sm font-medium">{$i18n.t("添加资料")}</summary>
 							<div class="mt-4 grid gap-5 xl:grid-cols-2">
 								<form on:submit|preventDefault={() => addDocument('file')} class="space-y-3">
 									<label class="block space-y-2 text-sm"
-										><span>上传文件</span><input
+										><span>{$i18n.t("上传文件")}</span><input
 											bind:this={documentInput}
 											bind:files={documentFiles}
 											type="file"
@@ -1046,16 +1039,14 @@
 											required
 										/></label
 									>
-									<p class="text-xs leading-5 text-gray-500">
-										文件会进入知识解析和索引流程。请仅上传你有权处理的资料。
-									</p>
+									<p class="text-xs leading-5 text-gray-500">{$i18n.t("文件会进入知识解析和索引流程。请仅上传你有权处理的资料。")}</p>
 									<button class={primaryClass} disabled={knowledgeBusy || !documentFiles?.length}
-										>{knowledgeBusy ? '提交中…' : '上传并索引'}</button
+										>{knowledgeBusy ? $i18n.t("提交中…") : $i18n.t("上传并索引")}</button
 									>
 								</form>
 								<form on:submit|preventDefault={() => addDocument('manual')} class="space-y-3">
 									<label class="block space-y-1 text-sm"
-										><span>文本标题</span><input
+										><span>{$i18n.t("文本标题")}</span><input
 											class={inputClass}
 											bind:value={documentTitle}
 											maxlength="200"
@@ -1063,34 +1054,34 @@
 											required
 										/></label
 									><label class="block space-y-1 text-sm"
-										><span>正文</span><textarea
+										><span>{$i18n.t("正文")}</span><textarea
 											class={inputClass}
 											bind:value={documentContent}
 											rows="5"
 											disabled={knowledgeBusy}
 											required
-											placeholder="粘贴笔记、研究摘要或内部说明…"
+											placeholder="{$i18n.t("粘贴笔记、研究摘要或内部说明…")}"
 										></textarea></label
 									><button
 										class={primaryClass}
 										disabled={knowledgeBusy || !documentTitle.trim() || !documentContent.trim()}
-										>{knowledgeBusy ? '提交中…' : '保存并索引'}</button
+										>{knowledgeBusy ? $i18n.t("提交中…") : $i18n.t("保存并索引")}</button
 									>
 								</form>
 							</div>
 						</details>
 					{/if}
 					{#if isFaq}
-						<section class="space-y-4" aria-label="问答条目">
+						<section class="space-y-4" aria-label="{$i18n.t("问答条目")}">
 							<div class="flex flex-wrap items-center justify-between gap-2">
-								<h3 class="text-sm font-semibold">标准问答</h3>
+								<h3 class="text-sm font-semibold">{$i18n.t("标准问答")}</h3>
 								<div class="flex gap-2">
 									<button
 										type="button"
 										class={secondaryClass}
 										disabled={faqLoading || knowledgeBusy}
 										on:click={() => selectedKnowledge && loadFaq(selectedKnowledge.id)}
-										>{faqLoading ? '刷新中…' : '刷新'}</button
+										>{faqLoading ? $i18n.t("刷新中…") : $i18n.t("刷新")}</button
 									>{#if canManageKnowledge}<button
 											type="button"
 											class={primaryClass}
@@ -1098,7 +1089,7 @@
 											on:click={() => {
 												resetFaqForm();
 												faqFormOpen = true;
-											}}>＋ 新建问答</button
+											}}>{$i18n.t("＋ 新建问答")}</button
 										>{/if}
 								</div>
 							</div>
@@ -1107,9 +1098,9 @@
 									on:submit|preventDefault={saveFaq}
 									class="space-y-3 rounded-2xl border border-gray-200 p-4 dark:border-gray-800"
 								>
-									<h4 class="text-sm font-semibold">{faqEditingId ? '编辑问答' : '录入问答'}</h4>
+									<h4 class="text-sm font-semibold">{faqEditingId ? $i18n.t("编辑问答") : $i18n.t("录入问答")}</h4>
 									<label class="block space-y-1 text-sm"
-										><span>标准问题</span><textarea
+										><span>{$i18n.t("标准问题")}</span><textarea
 											class={inputClass}
 											rows="2"
 											bind:value={faqQuestion}
@@ -1120,7 +1111,7 @@
 									>
 									{#each faqAnswers as answer, index}<div class="flex items-start gap-2">
 											<label class="block flex-1 space-y-1 text-sm"
-												><span>答案 {index + 1}</span><textarea
+												><span>{$i18n.t("答案")}{index + 1}</span><textarea
 													class={inputClass}
 													rows="3"
 													bind:value={faqAnswers[index]}
@@ -1135,17 +1126,17 @@
 													on:click={() =>
 														(faqAnswers = faqAnswers.filter(
 															(_, answerIndex) => answerIndex !== index
-														))}>移除</button
+														))}>{$i18n.t("移除")}</button
 												>{/if}
 										</div>{/each}
 									<button
 										type="button"
 										class={secondaryClass}
 										disabled={knowledgeBusy || faqAnswers.length >= 20}
-										on:click={() => (faqAnswers = [...faqAnswers, ''])}>添加备选答案</button
+										on:click={() => (faqAnswers = [...faqAnswers, ''])}>{$i18n.t("添加备选答案")}</button
 									>
 									<label class="block space-y-1 text-sm"
-										><span>相似问题（可选，每行一个，最多 20 个）</span><textarea
+										><span>{$i18n.t("相似问题（可选，每行一个，最多 20 个）")}</span><textarea
 											class={inputClass}
 											rows="3"
 											bind:value={faqSimilarQuestions}
@@ -1158,12 +1149,12 @@
 											disabled={knowledgeBusy ||
 												!faqQuestion.trim() ||
 												!faqAnswers.some((answer) => answer.trim())}
-											>{knowledgeBusy ? '保存中…' : '保存问答'}</button
+											>{knowledgeBusy ? $i18n.t("保存中…") : $i18n.t("保存问答")}</button
 										><button
 											type="button"
 											class={secondaryClass}
 											disabled={knowledgeBusy}
-											on:click={resetFaqForm}>取消</button
+											on:click={resetFaqForm}>{$i18n.t("取消")}</button
 										>
 									</div>
 								</form>
@@ -1172,8 +1163,8 @@
 									class="rounded-xl bg-gray-50 p-4 text-sm text-gray-500 dark:bg-gray-850"
 								>
 									{faqLoading
-										? '正在读取问答…'
-										: '当前页没有问答。可录入标准问题、相似问法与答案。'}
+										? $i18n.t("正在读取问答…")
+										: $i18n.t("当前页没有问答。可录入标准问题、相似问法与答案。")}
 								</p>{/if}
 							{#each faqEntries as entry (entry.id)}<article
 									class="space-y-2 rounded-2xl border border-gray-200 p-4 dark:border-gray-800"
@@ -1186,7 +1177,7 @@
 										</p>{/each}{#if entry.similar_questions?.length}<details
 											class="text-xs text-gray-500"
 										>
-											<summary class="cursor-pointer">相似问法</summary>
+											<summary class="cursor-pointer">{$i18n.t("相似问法")}</summary>
 											<ul class="mt-2 space-y-1">
 												{#each entry.similar_questions as question}<li>{question}</li>{/each}
 											</ul>
@@ -1195,12 +1186,12 @@
 												type="button"
 												class="text-xs text-gray-500"
 												disabled={knowledgeBusy}
-												on:click={() => editFaq(entry)}>编辑</button
+												on:click={() => editFaq(entry)}>{$i18n.t("编辑")}</button
 											><button
 												type="button"
 												class="text-xs text-red-600"
 												disabled={knowledgeBusy}
-												on:click={() => removeFaq(entry)}>删除</button
+												on:click={() => removeFaq(entry)}>{$i18n.t("删除")}</button
 											>
 										</div>{/if}
 								</article>{/each}
@@ -1212,36 +1203,35 @@
 										class={secondaryClass}
 										disabled={faqLoading || knowledgeBusy || faqPage === 1}
 										on:click={() => selectedKnowledge && loadFaq(selectedKnowledge.id, faqPage - 1)}
-										>上一页</button
-									><span>第 {faqPage} 页</span><button
+										>{$i18n.t("上一页")}</button
+									><span>{$i18n.t("第")}{faqPage}{$i18n.t("页")}</span><button
 										type="button"
 										class={secondaryClass}
 										disabled={faqLoading || knowledgeBusy || !faqHasMore}
 										on:click={() => selectedKnowledge && loadFaq(selectedKnowledge.id, faqPage + 1)}
-										>下一页</button
+										>{$i18n.t("下一页")}</button
 									>
 								</div>{/if}
 						</section>
 					{:else}
-						<section class="space-y-3" aria-label="知识库文档">
+						<section class="space-y-3" aria-label="{$i18n.t("知识库文档")}">
 							<div class="flex items-center justify-between">
-								<h3 class="text-sm font-semibold">
-									文档 <span class="text-gray-400">{documentsTotal ?? documents.length}</span>
+								<h3 class="text-sm font-semibold">{$i18n.t("文档")}<span class="text-gray-400">{documentsTotal ?? documents.length}</span>
 								</h3>
 								<button
 									type="button"
 									class="text-sm text-gray-500"
 									disabled={documentsLoading || knowledgeBusy}
 									on:click={() => selectedKnowledge && loadDocuments(selectedKnowledge.id)}
-									>{documentsLoading ? '更新中…' : '刷新解析状态'}</button
+									>{documentsLoading ? $i18n.t("更新中…") : $i18n.t("刷新解析状态")}</button
 								>
 							</div>
 							{#if !documents.length}<p
 									class="rounded-xl bg-gray-50 p-4 text-sm text-gray-500 dark:bg-gray-850"
 								>
 									{documentsLoading
-										? '正在加载文档…'
-										: '还没有文档。添加资料后，解析状态会显示在这里。'}
+										? $i18n.t("正在加载文档…")
+										: $i18n.t("还没有文档。添加资料后，解析状态会显示在这里。")}
 								</p>{/if}
 							<ul class="divide-y divide-gray-100 dark:divide-gray-800">
 								{#each documents as document (document.id)}<li
@@ -1254,21 +1244,21 @@
 												disabled={knowledgeBusy}
 												on:click={() => selectDocument(document)}
 											>
-												{document.title || document.file_name || '未命名文档'}
+												{document.title || document.file_name || $i18n.t("未命名文档")}
 											</button>
-											<p class="mt-1 text-xs text-gray-500">{parseState(document.parse_status)}</p>
+											<p class="mt-1 text-xs text-gray-500">{$i18n.t(parseState(document.parse_status))}</p>
 										</div>
 										{#if canManageKnowledge}<div class="flex shrink-0 flex-col items-end gap-2">
 												<button
 													type="button"
 													class="text-xs text-gray-500"
 													disabled={knowledgeBusy}
-													on:click={() => reparseDocument(document)}>重新解析</button
+													on:click={() => reparseDocument(document)}>{$i18n.t("重新解析")}</button
 												><button
 													type="button"
 													class="shrink-0 text-xs text-red-600 disabled:opacity-40"
 													disabled={knowledgeBusy}
-													on:click={() => removeDocument(document)}>删除</button
+													on:click={() => removeDocument(document)}>{$i18n.t("删除")}</button
 												>
 											</div>{/if}
 									</li>{/each}
@@ -1281,16 +1271,16 @@
 										disabled={documentsLoading || knowledgeBusy || documentsPage === 1}
 										on:click={() =>
 											selectedKnowledge && loadDocuments(selectedKnowledge.id, documentsPage - 1)}
-										>上一页</button
+										>{$i18n.t("上一页")}</button
 									>
-									<span>第 {documentsPage} 页 · 每页最多 50 项</span>
+									<span>{$i18n.t("第")}{documentsPage}{$i18n.t("页 · 每页最多 50 项")}</span>
 									<button
 										type="button"
 										class={secondaryClass}
 										disabled={documentsLoading || knowledgeBusy || !documentsHasMore}
 										on:click={() =>
 											selectedKnowledge && loadDocuments(selectedKnowledge.id, documentsPage + 1)}
-										>下一页</button
+										>{$i18n.t("下一页")}</button
 									>
 								</div>
 							{/if}
@@ -1298,11 +1288,11 @@
 						{#if selectedDocument}
 							<section
 								class="space-y-4 rounded-2xl border border-gray-200 p-4 dark:border-gray-800"
-								aria-label="文档分块管理"
+								aria-label="{$i18n.t("文档分块管理")}"
 							>
 								<div class="flex flex-wrap items-center justify-between gap-2">
 									<div>
-										<h3 class="text-sm font-semibold">分块内容与版本</h3>
+										<h3 class="text-sm font-semibold">{$i18n.t("分块内容与版本")}</h3>
 										<p class="mt-1 break-words text-xs text-gray-500">
 											{selectedDocument.title || selectedDocument.file_name || selectedDocument.id}
 										</p>
@@ -1311,16 +1301,14 @@
 										type="button"
 										class={secondaryClass}
 										disabled={chunksLoading || knowledgeBusy}
-										on:click={() => loadChunks()}>{chunksLoading ? '刷新中…' : '刷新分块'}</button
+										on:click={() => loadChunks()}>{chunksLoading ? $i18n.t("刷新中…") : $i18n.t("刷新分块")}</button
 									>
 								</div>
-								<p class="text-xs leading-5 text-gray-500">
-									点击片段查看全文和历史版本。人工编辑会更新检索内容；重新解析原文可能替换这些分块。
-								</p>
+								<p class="text-xs leading-5 text-gray-500">{$i18n.t("点击片段查看全文和历史版本。人工编辑会更新检索内容；重新解析原文可能替换这些分块。")}</p>
 								{#if !chunks.length}<p class="text-sm text-gray-500">
 										{chunksLoading
-											? '正在读取分块…'
-											: '当前页没有可显示的分块，请确认文档已解析完成。'}
+											? $i18n.t("正在读取分块…")
+											: $i18n.t("当前页没有可显示的分块，请确认文档已解析完成。")}
 									</p>{/if}
 								<div class="max-h-[280px] space-y-2 overflow-y-auto">
 									{#each chunks as chunk (chunk.id)}<button
@@ -1331,8 +1319,8 @@
 											disabled={knowledgeBusy}
 											on:click={() => selectChunk(chunk)}
 											><span class="block text-xs text-gray-500"
-												>片段 {(chunk.chunk_index ?? chunks.indexOf(chunk)) + 1} · 版本 {chunk.content_revision ??
-													'未知'} · {parseState(chunk.index_status)}</span
+												>{$i18n.t("片段")}{(chunk.chunk_index ?? chunks.indexOf(chunk)) + 1}{$i18n.t("· 版本")}{chunk.content_revision ??
+													$i18n.t("未知")} · {$i18n.t(parseState(chunk.index_status))}</span
 											><span
 												class="mt-1 block line-clamp-3 whitespace-pre-wrap break-words text-sm leading-5"
 												>{chunk.content}</span
@@ -1346,12 +1334,12 @@
 											type="button"
 											class={secondaryClass}
 											disabled={chunksLoading || knowledgeBusy || chunksPage === 1}
-											on:click={() => loadChunks(chunksPage - 1)}>上一页</button
-										><span>第 {chunksPage} 页</span><button
+											on:click={() => loadChunks(chunksPage - 1)}>{$i18n.t("上一页")}</button
+										><span>{$i18n.t("第")}{chunksPage}{$i18n.t("页")}</span><button
 											type="button"
 											class={secondaryClass}
 											disabled={chunksLoading || knowledgeBusy || !chunksHasMore}
-											on:click={() => loadChunks(chunksPage + 1)}>下一页</button
+											on:click={() => loadChunks(chunksPage + 1)}>{$i18n.t("下一页")}</button
 										>
 									</div>{/if}
 								{#if selectedChunk}
@@ -1360,7 +1348,7 @@
 										class="space-y-3 border-t border-gray-100 pt-4 dark:border-gray-800"
 									>
 										<label class="block space-y-2 text-sm"
-											><span>片段全文 · 当前版本 {selectedChunk.content_revision ?? '未知'}</span
+											><span>{$i18n.t("片段全文 · 当前版本")}{selectedChunk.content_revision ?? $i18n.t("未知")}</span
 											><textarea
 												class={inputClass}
 												rows="8"
@@ -1374,24 +1362,20 @@
 												disabled={knowledgeBusy ||
 													typeof selectedChunk.content_revision !== 'number' ||
 													!chunkContent.trim() ||
-													chunkContent === selectedChunk.content}>保存片段修改</button
+													chunkContent === selectedChunk.content}>{$i18n.t("保存片段修改")}</button
 											>{/if}
 									</form>
 									<div class="space-y-3">
-										<h4 class="text-sm font-semibold">历史版本</h4>
-										{#if revisionsLoading}<p class="text-xs text-gray-500">
-												正在读取历史版本…
-											</p>{:else if !chunkRevisions.length}<p class="text-xs text-gray-500">
-												暂无可恢复的历史版本。
-											</p>{:else}<label class="block space-y-1 text-sm"
-												><span>选择要查看的版本</span><select
+										<h4 class="text-sm font-semibold">{$i18n.t("历史版本")}</h4>
+										{#if revisionsLoading}<p class="text-xs text-gray-500">{$i18n.t("正在读取历史版本…")}</p>{:else if !chunkRevisions.length}<p class="text-xs text-gray-500">{$i18n.t("暂无可恢复的历史版本。")}</p>{:else}<label class="block space-y-1 text-sm"
+												><span>{$i18n.t("选择要查看的版本")}</span><select
 													class={inputClass}
 													bind:value={restoreVersion}
 													disabled={knowledgeBusy}
-													><option value="">请选择指定版本</option
+													><option value="">{$i18n.t("请选择指定版本")}</option
 													>{#each chunkRevisions as revision (revision.revision)}<option
 															value={String(revision.revision)}
-															>版本 {revision.revision} · {operationTime(
+															>{$i18n.t("版本")}{revision.revision} · {operationTime(
 																revision.edited_at ?? revision.created_at
 															)}</option
 														>{/each}</select
@@ -1405,7 +1389,7 @@
 															typeof selectedChunk.content_revision !== 'number' ||
 															selectedRevision.revision === selectedChunk.content_revision}
 														on:click={restoreChunk}
-														>恢复为版本 {selectedRevision.revision} 的内容</button
+														>{$i18n.t("恢复为版本")}{selectedRevision.revision}{$i18n.t("的内容")}</button
 													>{/if}{/if}{/if}
 									</div>
 								{/if}
@@ -1414,33 +1398,31 @@
 					{/if}
 					<section
 						class="space-y-3 border-t border-gray-100 pt-5 dark:border-gray-800"
-						aria-label="知识检索"
+						aria-label="{$i18n.t("知识检索")}"
 					>
-						<h3 class="text-sm font-semibold">检索知识</h3>
+						<h3 class="text-sm font-semibold">{$i18n.t("检索知识")}</h3>
 						<form on:submit|preventDefault={searchKnowledge} class="flex gap-2">
 							<input
 								class={inputClass}
-								aria-label="知识检索问题"
+								aria-label="{$i18n.t("知识检索问题")}"
 								bind:value={knowledgeQuery}
 								required
-								placeholder="输入问题或关键词"
+								placeholder="{$i18n.t("输入问题或关键词")}"
 								disabled={searchLoading}
 							/><button
 								class="{primaryClass} shrink-0"
 								disabled={searchLoading || !knowledgeQuery.trim()}
-								>{searchLoading ? '检索中…' : '检索'}</button
+								>{searchLoading ? $i18n.t("检索中…") : $i18n.t("检索")}</button
 							>
 						</form>
-						{#if searchedKnowledge && !searchResults.length}<p class="text-sm text-gray-500">
-								没有找到相关片段。可尝试更具体的关键词，或确认文档已解析完成。
-							</p>{/if}
+						{#if searchedKnowledge && !searchResults.length}<p class="text-sm text-gray-500">{$i18n.t("没有找到相关片段。可尝试更具体的关键词，或确认文档已解析完成。")}</p>{/if}
 						{#each searchResults as result, index}<article
 								class="space-y-2 rounded-2xl border border-gray-200 p-4 dark:border-gray-800"
 							>
 								<div class="flex justify-between text-xs text-gray-500">
-									<span>片段 {index + 1}{result.title ? ` · ${result.title}` : ''}</span
+									<span>{$i18n.t("片段")}{index + 1}{result.title ? ` · ${result.title}` : ''}</span
 									>{#if typeof result.score === 'number'}<span
-											>相关度 {result.score.toFixed(3)}</span
+											>{$i18n.t("相关度")}{result.score.toFixed(3)}</span
 										>{/if}
 								</div>
 								<p class="whitespace-pre-wrap break-words text-sm leading-6">{result.content}</p>
@@ -1448,7 +1430,7 @@
 					</section>
 					{#if !isFaq}
 						<details class="rounded-2xl border border-gray-200 p-4 dark:border-gray-800">
-							<summary class="cursor-pointer text-sm font-medium">Wiki 知识页面管理</summary>
+							<summary class="cursor-pointer text-sm font-medium">{$i18n.t("Wiki 知识页面管理")}</summary>
 							<div class="mt-4">
 								{#key selectedKnowledge.id}<ThereWiki
 										knowledgeId={selectedKnowledge.id}
@@ -1461,34 +1443,30 @@
 					<div
 						class="rounded-2xl border border-dashed border-gray-200 px-6 py-16 text-center dark:border-gray-700"
 					>
-						<h2 class="font-medium">让资料成为可检索的知识</h2>
-						<p class="mx-auto mt-2 max-w-md text-sm leading-6 text-gray-500">
-							选择知识库查看文档、写入文本、上传文件或检索内容。资料访问由 THERE 账号权限控制。
-						</p>
+						<h2 class="font-medium">{$i18n.t("让资料成为可检索的知识")}</h2>
+						<p class="mx-auto mt-2 max-w-md text-sm leading-6 text-gray-500">{$i18n.t("选择知识库查看文档、写入文本、上传文件或检索内容。资料访问由 THERE 账号权限控制。")}</p>
 					</div>
 				{/if}
 			</main>
 		</div>
 	{:else if section === 'skills'}
-		<section class="space-y-4" aria-label="技能目录">
+		<section class="space-y-4" aria-label="{$i18n.t("技能目录")}">
 			<div class="flex flex-wrap items-center justify-between gap-3">
 				<div>
-					<h2 class="font-semibold">开源技能目录</h2>
-					<p class="mt-1 text-sm text-gray-500">
-						审阅后导入个人原生技能，可在普通对话和 Agent 对话中选择使用。
-					</p>
+					<h2 class="font-semibold">{$i18n.t("开源技能目录")}</h2>
+					<p class="mt-1 text-sm text-gray-500">{$i18n.t("审阅后导入个人原生技能，可在普通对话和 Agent 对话中选择使用。")}</p>
 				</div>
-				<a class={secondaryClass} href="/workspace/skills">管理我的技能 →</a>
+				<a class={secondaryClass} href="/workspace/skills">{$i18n.t("管理我的技能 →")}</a>
 			</div>
 			<form on:submit|preventDefault={loadCatalog} class="flex gap-2">
 				<input
 					class={inputClass}
-					aria-label="搜索技能目录"
+					aria-label="{$i18n.t("搜索技能目录")}"
 					bind:value={catalogQuery}
 					disabled={catalogLoading}
-					placeholder="搜索能力，例如 research、coding、writing"
+					placeholder="{$i18n.t("搜索能力，例如 research、coding、writing")}"
 				/><button class="{primaryClass} shrink-0" disabled={catalogLoading}
-					>{catalogLoading ? '搜索中…' : '搜索'}</button
+					>{catalogLoading ? $i18n.t("搜索中…") : $i18n.t("搜索")}</button
 				>
 			</form>
 			<div class="grid gap-5 lg:grid-cols-[minmax(240px,1fr)_minmax(0,1.5fr)]">
@@ -1496,7 +1474,7 @@
 					<p class="text-xs text-gray-500">
 						{catalogLoaded
 							? `找到 ${catalogTotal} 项，显示 ${catalog.length} 项；可缩小关键词继续查找。`
-							: '正在加载技能目录…'}
+							: $i18n.t("正在加载技能目录…")}
 					</p>
 					<div class="max-h-[650px] space-y-2 overflow-y-auto">
 						{#each catalog as skill (skill.id)}<button
@@ -1513,25 +1491,19 @@
 								></button
 							>{/each}
 					</div>
-					{#if catalogLoaded && !catalog.length}<p class="p-4 text-sm text-gray-500">
-							没有匹配的技能。试试英文关键词或清空搜索。
-						</p>{/if}
+					{#if catalogLoaded && !catalog.length}<p class="p-4 text-sm text-gray-500">{$i18n.t("没有匹配的技能。试试英文关键词或清空搜索。")}</p>{/if}
 				</div>
 				<div class="min-w-0 rounded-2xl border border-gray-200 p-4 dark:border-gray-800">
-					{#if skillLoading}<p role="status" class="py-8 text-center text-sm text-gray-500">
-							正在读取技能全文…
-						</p>{:else if selectedSkill}
+					{#if skillLoading}<p role="status" class="py-8 text-center text-sm text-gray-500">{$i18n.t("正在读取技能全文…")}</p>{:else if selectedSkill}
 						<h3 class="break-words font-semibold">{selectedSkill.name}</h3>
-						<p class="mt-1 text-xs text-gray-500">目录版本 {selectedSkill.version}</p>
+						<p class="mt-1 text-xs text-gray-500">{$i18n.t("目录版本")}{selectedSkill.version}</p>
 						<div
 							class="my-3 rounded-xl bg-amber-50 p-3 text-xs leading-5 text-amber-800 dark:bg-amber-950/30 dark:text-amber-300"
-						>
-							以下是第三方、不受信任的技能内容。请检查权限要求、外部链接及命令。导入仅保存技能说明，不会自动执行附带脚本。
-						</div>
+						>{$i18n.t("以下是第三方、不受信任的技能内容。请检查权限要求、外部链接及命令。导入仅保存技能说明，不会自动执行附带脚本。")}</div>
 						<pre
 							class="max-h-[440px] overflow-y-auto whitespace-pre-wrap break-words rounded-xl bg-gray-50 p-4 font-mono text-xs leading-6 dark:bg-gray-850">{selectedSkill.content}</pre>
 						<details class="mt-3 text-xs text-gray-500">
-							<summary class="cursor-pointer">内容校验摘要</summary>
+							<summary class="cursor-pointer">{$i18n.t("内容校验摘要")}</summary>
 							<p class="mt-2 break-all font-mono">{selectedSkill.digest}</p>
 						</details>
 						{#if canManageSkills}<label class="my-4 flex items-start gap-2 text-sm"
@@ -1540,81 +1512,68 @@
 									class="mt-1"
 									bind:checked={reviewed}
 									disabled={skillBusy}
-								/><span>我已审阅全文，确认将此版本导入我的 THERE 技能。</span></label
+								/><span>{$i18n.t("我已审阅全文，确认将此版本导入我的 THERE 技能。")}</span></label
 							><button
 								type="button"
 								class={primaryClass}
 								disabled={!reviewed || skillBusy || !selectedSkill.digest}
-								on:click={activateSkill}>{skillBusy ? '导入中…' : '导入个人技能'}</button
-							>{:else}<p class="mt-4 text-sm text-gray-500">
-								当前账号没有创建技能的权限。请联系管理员。
-							</p>{/if}
-					{:else}<p class="py-16 text-center text-sm leading-6 text-gray-500">
-							选择一个技能查看全文。<br />导入前需要明确审阅并确认。
-						</p>{/if}
+								on:click={activateSkill}>{skillBusy ? $i18n.t("导入中…") : $i18n.t("导入个人技能")}</button
+							>{:else}<p class="mt-4 text-sm text-gray-500">{$i18n.t("当前账号没有创建技能的权限。请联系管理员。")}</p>{/if}
+					{:else}<p class="py-16 text-center text-sm leading-6 text-gray-500">{$i18n.t("选择一个技能查看全文。")}<br />{$i18n.t("导入前需要明确审阅并确认。")}</p>{/if}
 				</div>
 			</div>
 		</section>
 	{:else if section === 'research'}
-		<section class="space-y-4" aria-label="论文检索">
+		<section class="space-y-4" aria-label="{$i18n.t("论文检索")}">
 			<div>
-				<h2 class="font-semibold">跨来源论文检索</h2>
-				<p class="mt-1 text-sm leading-6 text-gray-500">
-					合并多个学术来源的结果，保留作者、年份与原文链接。检索词会发送给已配置的外部学术数据源，请勿包含内网机密。
-				</p>
+				<h2 class="font-semibold">{$i18n.t("跨来源论文检索")}</h2>
+				<p class="mt-1 text-sm leading-6 text-gray-500">{$i18n.t("合并多个学术来源的结果，保留作者、年份与原文链接。检索词会发送给已配置的外部学术数据源，请勿包含内网机密。")}</p>
 			</div>
 			<form on:submit|preventDefault={searchResearch} class="flex gap-2">
 				<input
 					class={inputClass}
-					aria-label="论文检索关键词"
+					aria-label="{$i18n.t("论文检索关键词")}"
 					bind:value={researchQuery}
 					required
 					disabled={researchLoading}
-					placeholder="输入论文题目、研究问题或英文关键词"
+					placeholder="{$i18n.t("输入论文题目、研究问题或英文关键词")}"
 				/><button
 					class="{primaryClass} shrink-0"
 					disabled={researchLoading || !researchQuery.trim()}
-					>{researchLoading ? '检索中…' : '检索论文'}</button
+					>{researchLoading ? $i18n.t("检索中…") : $i18n.t("检索论文")}</button
 				>
 			</form>
 			{#if canManageKnowledge}
 				<div class="space-y-2 rounded-xl bg-gray-50 p-4 dark:bg-gray-850">
 					<label class="flex flex-col gap-2 text-sm sm:flex-row sm:items-center"
-						><span class="shrink-0">摘要导入目标</span><select
+						><span class="shrink-0">{$i18n.t("摘要导入目标")}</span><select
 							class={inputClass}
 							bind:value={paperKnowledgeId}
 							disabled={paperBusy}
-							><option value="">选择知识库</option
+							><option value="">{$i18n.t("选择知识库")}</option
 							>{#each documentKnowledge as item (item.id)}<option value={item.id}
 									>{item.name}</option
 								>{/each}</select
 						></label
 					>
-					<p class="text-xs leading-5 text-gray-500">
-						“摘要入库”只保存论文摘要、作者与出处，不下载或保存论文全文。{!documentKnowledge.length
-							? '请先在知识区创建文档知识库。'
+					<p class="text-xs leading-5 text-gray-500">{$i18n.t("“摘要入库”只保存论文摘要、作者与出处，不下载或保存论文全文。")}{!documentKnowledge.length
+							? $i18n.t("请先在知识区创建文档知识库。")
 							: ''}
 					</p>
 				</div>
 			{/if}
-			{#if researchLoading}<p role="status" class="py-10 text-center text-sm text-gray-500">
-					正在检索学术来源并整理结果…
-				</p>{:else if research}
+			{#if researchLoading}<p role="status" class="py-10 text-center text-sm text-gray-500">{$i18n.t("正在检索学术来源并整理结果…")}</p>{:else if research}
 				{#if research.partial}<p
 						role="status"
 						class="rounded-xl bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-950/30 dark:text-amber-300"
-					>
-						部分数据源暂不可用。以下为已返回的结果，并不代表完整覆盖。
-					</p>{/if}
-				<p class="text-xs text-gray-500">
-					返回 {research.items.length} 篇文献。请阅读原文核实结论与引用。
-				</p>
+					>{$i18n.t("部分数据源暂不可用。以下为已返回的结果，并不代表完整覆盖。")}</p>{/if}
+				<p class="text-xs text-gray-500">{$i18n.t("返回")}{research.items.length}{$i18n.t("篇文献。请阅读原文核实结论与引用。")}</p>
 				{#if research.sources?.length}
 					<details class="text-sm">
-						<summary>数据源状态</summary>
+						<summary>{$i18n.t("数据源状态")}</summary>
 						<ul class="mt-2 space-y-1">
 							{#each research.sources as source}
-								<li>{source.source}：{source.status} · 返回 {source.returned} 条{source.retryable ? ' · 可稍后重试' : ''}</li>
+								<li>{source.source}：{source.status}{$i18n.t("· 返回")}{source.returned}{$i18n.t("条")}{source.retryable ? $i18n.t(" · 可稍后重试") : ''}</li>
 							{/each}
 						</ul>
 					</details>
@@ -1634,7 +1593,7 @@
 							{[paper.year, paper.source, authorsText(paper.authors)].filter(Boolean).join(' · ')}
 						</p>
 						{#if paper.abstract}<details class="text-sm">
-								<summary class="cursor-pointer text-gray-500">摘要</summary>
+								<summary class="cursor-pointer text-gray-500">{$i18n.t("摘要")}</summary>
 								<p class="mt-2 whitespace-pre-wrap leading-6">{paper.abstract}</p>
 							</details>{/if}{#if paper.doi}<p class="break-all text-xs text-gray-400">
 								DOI: {paper.doi}
@@ -1645,41 +1604,38 @@
 								class={secondaryClass}
 								on:click={() => savePaper(paper)}
 								disabled={paperBusy || savedPaper(paper)}
-								>{savedPaper(paper) ? '已收藏' : '收藏论文'}</button
+								>{savedPaper(paper) ? $i18n.t("已收藏") : $i18n.t("收藏论文")}</button
 							>{#if canManageKnowledge}<button
 									type="button"
 									class={secondaryClass}
 									on:click={() => importPaperAbstract(paper)}
-									disabled={paperBusy || !paperKnowledgeId || !paper.abstract}>摘要入库</button
+									disabled={paperBusy || !paperKnowledgeId || !paper.abstract}>{$i18n.t("摘要入库")}</button
 								>{/if}
 						</div>
 					</article>{/each}
-				{#if !research.items.length}<p class="py-10 text-center text-sm text-gray-500">
-						没有找到论文。尝试更通用的研究主题或英文关键词。
-					</p>{/if}
+				{#if !research.items.length}<p class="py-10 text-center text-sm text-gray-500">{$i18n.t("没有找到论文。尝试更通用的研究主题或英文关键词。")}</p>{/if}
 			{:else}<div
 					class="rounded-2xl border border-dashed border-gray-200 py-14 text-center dark:border-gray-700"
 				>
-					<p class="font-medium">从问题开始，找到可以追溯的文献</p>
-					<p class="mt-2 text-sm text-gray-500">例如：retrieval augmented generation evaluation</p>
+					<p class="font-medium">{$i18n.t("从问题开始，找到可以追溯的文献")}</p>
+					<p class="mt-2 text-sm text-gray-500">{$i18n.t("例如：retrieval augmented generation evaluation")}</p>
 				</div>{/if}
 			<section
 				class="space-y-3 border-t border-gray-100 pt-5 dark:border-gray-800"
-				aria-label="我的论文收藏"
+				aria-label="{$i18n.t("我的论文收藏")}"
 			>
 				<div class="flex items-center justify-between">
-					<h3 class="text-sm font-semibold">
-						我的论文收藏 <span class="text-gray-400">{savedPapers.length}</span>
+					<h3 class="text-sm font-semibold">{$i18n.t("我的论文收藏")}<span class="text-gray-400">{savedPapers.length}</span>
 					</h3>
 					<button
 						type="button"
 						class="text-sm text-gray-500"
 						disabled={papersLoading || paperBusy}
-						on:click={loadPapers}>{papersLoading ? '刷新中…' : '刷新'}</button
+						on:click={loadPapers}>{papersLoading ? $i18n.t("刷新中…") : $i18n.t("刷新")}</button
 					>
 				</div>
 				{#if !savedPapers.length}<p class="text-sm text-gray-500">
-						{papersLoading ? '正在读取收藏…' : '还没有收藏。检索后可将论文保存到 THERE 主库。'}
+						{papersLoading ? $i18n.t("正在读取收藏…") : $i18n.t("还没有收藏。检索后可将论文保存到 THERE 主库。")}
 					</p>{/if}
 				{#each savedPapers as paper}<article
 						class="rounded-xl border border-gray-100 p-4 dark:border-gray-800"
@@ -1696,28 +1652,28 @@
 							{[paper.year, paper.source, authorsText(paper.authors)].filter(Boolean).join(' · ')}
 						</p>
 						{#if paper.abstract}<details class="mt-2 text-sm">
-								<summary class="cursor-pointer text-gray-500">摘要</summary>
+								<summary class="cursor-pointer text-gray-500">{$i18n.t("摘要")}</summary>
 								<p class="mt-2 whitespace-pre-wrap leading-6">{paper.abstract}</p>
 							</details>{/if}{#if canManageKnowledge}<button
 								type="button"
 								class="{secondaryClass} mt-3"
 								on:click={() => importPaperAbstract(paper)}
-								disabled={paperBusy || !paperKnowledgeId || !paper.abstract}>摘要入库</button
+								disabled={paperBusy || !paperKnowledgeId || !paper.abstract}>{$i18n.t("摘要入库")}</button
 							>{/if}
 					</article>{/each}
 			</section>
 		</section>
 	{:else}
-		<section class="space-y-4" aria-label="运行状态">
+		<section class="space-y-4" aria-label="{$i18n.t("运行状态")}">
 			<div class="flex items-center justify-between">
 				<div>
-					<h2 class="font-semibold">能力运行状态</h2>
+					<h2 class="font-semibold">{$i18n.t("能力运行状态")}</h2>
 					<p class="mt-1 text-xs text-gray-500">
-						{version ? `THERE 集成版本 ${version}` : '统一能力入口'}
+						{version ? `THERE 集成版本 ${version}` : $i18n.t("统一能力入口")}
 					</p>
 				</div>
 				<button type="button" class={secondaryClass} on:click={loadStatus} disabled={statusLoading}
-					>{statusLoading ? '检查中…' : '刷新状态'}</button
+					>{statusLoading ? $i18n.t("检查中…") : $i18n.t("刷新状态")}</button
 				>
 			</div>
 			<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -1727,31 +1683,29 @@
 						<div class="flex items-center justify-between gap-3">
 							<h3 class="text-sm font-semibold">{module.name}</h3>
 							<span class="rounded-full bg-gray-100 px-2 py-1 text-xs dark:bg-gray-800"
-								>{stateLabel(module.state)}</span
+								>{$i18n.t(stateLabel(module.state))}</span
 							>
 						</div>
 						<p class="mt-3 break-words text-sm leading-6 text-gray-500">
-							{module.detail || '暂无更多状态信息。'}
+							{module.detail || $i18n.t("暂无更多状态信息。")}
 						</p>
 					</article>{/each}
 			</div>
 			{#if !modules.length}<p class="py-8 text-sm text-gray-500">
-					{statusLoading ? '正在检查能力状态…' : '暂无状态信息，请刷新重试。'}
+					{statusLoading ? $i18n.t("正在检查能力状态…") : $i18n.t("暂无状态信息，请刷新重试。")}
 				</p>{/if}
 			<section
 				class="space-y-3 border-t border-gray-100 pt-5 dark:border-gray-800"
-				aria-label="能力操作记录"
+				aria-label="{$i18n.t("能力操作记录")}"
 			>
-				<h3 class="text-sm font-semibold">最近操作</h3>
-				<p class="text-xs leading-5 text-gray-500">
-					写入请求带有去重标识。发生网络错误时，保留原输入再次提交会复用同一标识；系统不会自动重试写入。遇到待确认状态，请先核对记录。
-				</p>
-				{#if !operations.length}<p class="text-sm text-gray-500">暂无可显示的操作记录。</p>{/if}
+				<h3 class="text-sm font-semibold">{$i18n.t("最近操作")}</h3>
+				<p class="text-xs leading-5 text-gray-500">{$i18n.t("写入请求带有去重标识。发生网络错误时，保留原输入再次提交会复用同一标识；系统不会自动重试写入。遇到待确认状态，请先核对记录。")}</p>
+				{#if !operations.length}<p class="text-sm text-gray-500">{$i18n.t("暂无可显示的操作记录。")}</p>{/if}
 				<ul class="divide-y divide-gray-100 dark:divide-gray-800">
 					{#each operations as operation (operation.id)}<li class="space-y-1 py-3">
 							<div class="flex flex-wrap items-center justify-between gap-2">
 								<span class="text-sm font-medium">{operation.action}</span><span
-									class="text-xs text-gray-500">{stateLabel(operation.state)}</span
+									class="text-xs text-gray-500">{$i18n.t(stateLabel(operation.state))}</span
 								>
 							</div>
 							<p class="break-all text-xs text-gray-500">
@@ -1765,10 +1719,7 @@
 						</li>{/each}
 				</ul>
 			</section>
-			<p class="text-xs leading-6 text-gray-500">
-				统一账号与权限、知识索引、技能导入和论文检索由 THERE
-				管理。此页状态不替代完整端到端验证；上传资料后可在知识区检验实际检索结果。
-			</p>
+			<p class="text-xs leading-6 text-gray-500">{$i18n.t("统一账号与权限、知识索引、技能导入和论文检索由 THERE 管理。此页状态不替代完整端到端验证；上传资料后可在知识区检验实际检索结果。")}</p>
 		</section>
 	{/if}
 </div>

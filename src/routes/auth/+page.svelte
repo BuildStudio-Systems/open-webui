@@ -247,8 +247,7 @@
 						<div
 							class="flex items-center justify-center gap-3 text-xl sm:text-2xl text-center font-normal dark:text-gray-200"
 						>
-							<div>
-								Signing in to {$WEBUI_NAME}
+							<div>{$i18n.t("Signing in to")} {$WEBUI_NAME}
 							</div>
 
 							<div>
@@ -258,7 +257,7 @@
 					</div>
 				{:else}
 					<div class="there-login-shell">
-						<section class="there-brand-panel" aria-label="BuildStudio There system overview">
+						<section class="there-brand-panel" aria-label={$i18n.t("BuildStudio There system overview")}>
 							<div class="there-brand-lockup">
 								<img
 									class="there-brand-mark"
@@ -268,30 +267,27 @@
 								<div class="there-brand-wordmark">
 									<div class="there-brand-name"><strong>BuildStudio</strong><span>There</span></div>
 									<div class="there-brand-rail" aria-hidden="true"></div>
-									<div class="there-brand-system-name">ARTIFICIAL INTELLIGENCE SYSTEM</div>
+									<div class="there-brand-system-name">{$i18n.t("ARTIFICIAL INTELLIGENCE SYSTEM")}</div>
 								</div>
 							</div>
 
 							<div class="there-brand-copy">
-								<p>PRIVATE AI INFRASTRUCTURE</p>
-								<h1>I’m There, <span>BuildStudio’s AI agent.</span></h1>
-								<div>
-									I’m here to understand your needs, answer your questions, and help turn your ideas
-									into action.
-								</div>
+								<p>{$i18n.t("PRIVATE AI INFRASTRUCTURE")}</p>
+								<h1>{$i18n.t("I’m There,")} <span>{$i18n.t("BuildStudio’s AI agent.")}</span></h1>
+								<div>{$i18n.t("I’m here to understand your needs, answer your questions, and help turn your ideas into action.")}</div>
 							</div>
 
-							<div class="there-capability-list" aria-label="System capabilities">
-								<span>LOCAL MODELS</span>
-								<span>AGENT ORCHESTRATION</span>
-								<span>PRIVATE KNOWLEDGE</span>
+							<div class="there-capability-list" aria-label={$i18n.t("System capabilities")}>
+								<span>{$i18n.t("LOCAL MODELS")}</span>
+								<span>{$i18n.t("AGENT ORCHESTRATION")}</span>
+								<span>{$i18n.t("PRIVATE KNOWLEDGE")}</span>
 							</div>
 						</section>
 
-						<section class="there-form-panel" aria-label="Sign in">
+						<section class="there-form-panel" aria-label={$i18n.t("Sign in")}>
 							<div class="there-form-panel__status">
-								<span>SECURE ACCESS</span>
-								<span><i></i> LOCAL SYSTEM</span>
+								<span>{$i18n.t("SECURE ACCESS")}</span>
+								<span><i></i> {$i18n.t("LOCAL SYSTEM")}</span>
 							</div>
 
 							<div id="auth-login-card" class="w-full dark:text-gray-100">
@@ -318,24 +314,13 @@
 								>
 									<div class="there-form-heading mb-1">
 										<div>
-											{#if $config?.onboarding ?? false}
-												Get started with There
-											{:else if mode === 'ldap'}
-												Sign in with LDAP
-											{:else if mode === 'signin'}
-												Welcome back
-											{:else}
-												Create your account
-											{/if}
+											{#if $config?.onboarding ?? false}{$i18n.t("Get started with There")}{:else if mode === 'ldap'}{$i18n.t("Sign in with LDAP")}{:else if mode === 'signin'}{$i18n.t("Welcome back")}{:else}{$i18n.t("Create your account")}{/if}
 										</div>
-										<p>Sign in to continue to your BuildStudio AI workspace.</p>
+										<p>{$i18n.t("Sign in to continue to your BuildStudio AI workspace.")}</p>
 
 										{#if $config?.onboarding ?? false}
 											<div class="mt-1 text-xs font-normal text-gray-600 dark:text-gray-500">
-												ⓘ {$WEBUI_NAME}
-												does not make any external connections, and your data stays securely on your locally
-												hosted server.
-											</div>
+												ⓘ {$WEBUI_NAME}{$i18n.t("does not make any external connections, and your data stays securely on your locally hosted server.")}</div>
 										{/if}
 									</div>
 
@@ -344,7 +329,7 @@
 											{#if mode === 'signup'}
 												<div class="mb-2">
 													<label for="name" class="text-sm font-normal text-left mb-1 block"
-														>Name</label
+														>{$i18n.t("Name")}</label
 													>
 													<input
 														bind:value={name}
@@ -352,7 +337,7 @@
 														id="name"
 														class="my-0.5 w-full text-sm outline-hidden bg-transparent placeholder:text-gray-300 dark:placeholder:text-gray-600"
 														autocomplete="name"
-														placeholder="Enter your full name"
+														placeholder={$i18n.t("Enter your full name")}
 														required
 													/>
 												</div>
@@ -361,7 +346,7 @@
 											{#if mode === 'ldap'}
 												<div class="mb-2">
 													<label for="username" class="text-sm font-normal text-left mb-1 block"
-														>Username</label
+														>{$i18n.t("Username")}</label
 													>
 													<input
 														bind:value={ldapUsername}
@@ -370,14 +355,14 @@
 														autocomplete="username"
 														name="username"
 														id="username"
-														placeholder="Enter your username"
+														placeholder={$i18n.t("Enter your username")}
 														required
 													/>
 												</div>
 											{:else}
 												<div class="mb-2">
 													<label for="email" class="text-sm font-normal text-left mb-1 block"
-														>Email</label
+														>{$i18n.t("Email")}</label
 													>
 													<input
 														bind:value={email}
@@ -386,7 +371,7 @@
 														class="my-0.5 w-full text-sm outline-hidden bg-transparent placeholder:text-gray-300 dark:placeholder:text-gray-600"
 														autocomplete="email"
 														name="email"
-														placeholder="Enter your email"
+														placeholder={$i18n.t("Enter your email")}
 														required
 													/>
 												</div>
@@ -394,7 +379,7 @@
 
 											<div>
 												<label for="password" class="text-sm font-normal text-left mb-1 block"
-													>Password</label
+													>{$i18n.t("Password")}</label
 												>
 												<SensitiveInput
 													bind:value={password}
@@ -402,8 +387,8 @@
 													id="password"
 													outerClassName="there-sensitive-input flex flex-1"
 													class="my-0.5 w-full text-sm outline-hidden bg-transparent placeholder:text-gray-300 dark:placeholder:text-gray-600"
-													placeholder="Enter your password"
-													showButtonLabel="Show or hide password"
+													placeholder={$i18n.t("Enter your password")}
+													showButtonLabel={$i18n.t("Show or hide password")}
 													autocomplete={mode === 'signup' ? 'new-password' : 'current-password'}
 													name="password"
 													screenReader={true}
@@ -416,7 +401,7 @@
 												<div class="mt-2">
 													<label
 														for="confirm-password"
-														class="text-sm font-normal text-left mb-1 block">Confirm password</label
+														class="text-sm font-normal text-left mb-1 block">{$i18n.t("Confirm password")}</label
 													>
 													<SensitiveInput
 														bind:value={confirmPassword}
@@ -424,8 +409,8 @@
 														id="confirm-password"
 														outerClassName="there-sensitive-input flex flex-1"
 														class="my-0.5 w-full text-sm outline-hidden bg-transparent"
-														placeholder="Confirm your password"
-														showButtonLabel="Show or hide password"
+														placeholder={$i18n.t("Confirm your password")}
+														showButtonLabel={$i18n.t("Show or hide password")}
 														autocomplete="new-password"
 														name="confirm-password"
 														required
@@ -442,7 +427,7 @@
 													type="submit"
 													disabled={submitting}
 												>
-													<div class="self-center">Authenticate</div>
+													<div class="self-center">{$i18n.t("Authenticate")}</div>
 
 													{#if submitting}
 														<div class="ml-1.5 self-center">
@@ -458,10 +443,10 @@
 												>
 													<div class="self-center">
 														{mode === 'signin'
-															? 'Sign in'
+															? $i18n.t("Sign in")
 															: ($config?.onboarding ?? false)
-																? 'Create admin account'
-																: 'Create account'}
+																? $i18n.t("Create admin account")
+																: $i18n.t("Create account")}
 													</div>
 
 													{#if submitting}
@@ -474,8 +459,8 @@
 												{#if $config?.features.enable_signup && !($config?.onboarding ?? false)}
 													<div class=" mt-4 text-sm text-center">
 														{mode === 'signin'
-															? "Don't have an account?"
-															: 'Already have an account?'}
+															? $i18n.t("Don't have an account?")
+															: $i18n.t("Already have an account?")}
 
 														<button
 															class=" font-normal underline"
@@ -488,7 +473,7 @@
 																}
 															}}
 														>
-															{mode === 'signin' ? 'Sign up' : 'Sign in'}
+															{mode === 'signin' ? $i18n.t("Sign up") : $i18n.t("Sign in")}
 														</button>
 													</div>
 												{/if}
@@ -503,7 +488,7 @@
 										{#if $config?.features.enable_login_form || $config?.features.enable_ldap || form}
 											<span
 												class="px-3 text-sm font-normal text-gray-900 dark:text-white bg-transparent"
-												>or</span
+												>{$i18n.t("or")}</span
 											>
 										{/if}
 
@@ -537,7 +522,7 @@
 														d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"
 													/><path fill="none" d="M0 0h48v48H0z" />
 												</svg>
-												<span>Continue with Google</span>
+												<span>{$i18n.t("Continue with Google")}</span>
 											</button>
 										{/if}
 										{#if $config?.oauth?.providers?.microsoft}
@@ -567,7 +552,7 @@
 														fill="#ffb900"
 													/>
 												</svg>
-												<span>Continue with Microsoft</span>
+												<span>{$i18n.t("Continue with Microsoft")}</span>
 											</button>
 										{/if}
 										{#if $config?.oauth?.providers?.github}
@@ -588,7 +573,7 @@
 														d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.92 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57C20.565 21.795 24 17.31 24 12c0-6.63-5.37-12-12-12z"
 													/>
 												</svg>
-												<span>Continue with GitHub</span>
+												<span>{$i18n.t("Continue with GitHub")}</span>
 											</button>
 										{/if}
 										{#if $config?.oauth?.providers?.oidc}
@@ -614,7 +599,7 @@
 													/>
 												</svg>
 
-												<span>Continue with {$config?.oauth?.providers?.oidc ?? 'SSO'}</span>
+												<span>{$i18n.t("Continue with")} {$config?.oauth?.providers?.oidc ?? 'SSO'}</span>
 											</button>
 										{/if}
 										{#if $config?.oauth?.providers?.feishu}
@@ -624,7 +609,7 @@
 													window.location.href = `${WEBUI_BASE_URL}/oauth/feishu/login`;
 												}}
 											>
-												<span>Continue with Feishu</span>
+												<span>{$i18n.t("Continue with Feishu")}</span>
 											</button>
 										{/if}
 									</div>
@@ -641,7 +626,7 @@
 												else mode = 'ldap';
 											}}
 										>
-											<span>{mode === 'ldap' ? 'Continue with email' : 'Continue with LDAP'}</span>
+											<span>{mode === 'ldap' ? $i18n.t("Continue with email") : $i18n.t("Continue with LDAP")}</span>
 										</button>
 									</div>
 								{/if}

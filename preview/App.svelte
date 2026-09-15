@@ -1,4 +1,5 @@
 <script lang="ts">
+  import StudioLanguagePicker from '$lib/components/common/StudioLanguagePicker.svelte'
   import {setContext} from 'svelte'
   import i18n,{initI18n} from '$lib/i18n'
   import {config,user,models,showSidebar,showSettings,settings,knowledge,tools,skills,functions,socket} from '$lib/stores'
@@ -32,23 +33,23 @@
   $: if($page.url.pathname!==requested)void open($page.url.pathname)
   $: if($page.url.searchParams.has('settings'))showSettings.set($page.url.searchParams.get('settings')!)
 </script>
-<nav class="preview-pages" aria-label="Sample pages"><label>Browse sample pages <select aria-label="Browse sample pages" value={$page.url.pathname} on:change={(event)=>goto(event.currentTarget.value)}>
-  <option value="/">Welcome & chat</option><option value="/c/sample-chat">Sample conversation</option>
-  <option value="/workspace/there">Knowledge, skills & research</option><option value="/workspace/models">Models</option><option value="/workspace/knowledge">Knowledge workspace</option><option value="/workspace/prompts">Prompts</option><option value="/workspace/skills">Skills</option><option value="/workspace/tools">Tools</option>
-  <option value="/notes">Notes</option><option value="/calendar">Calendar</option><option value="/automations">Automations</option><option value="/playground/images">Image playground</option><option value="/playground/completions">Completions playground</option>
-  <option value="/admin/users/overview">Administration · users</option><option value="/admin/users/groups">Administration · groups</option><option value="/admin/evaluations">Administration · evaluations</option><option value="/admin/analytics">Administration · analytics</option><option value="/admin/functions">Administration · functions</option><option value="/admin/settings/general">Administration · settings</option>
-  <option value="/?settings=account">Account settings</option>
-</select></label></nav>
+<nav class="preview-pages" aria-label={$i18n.t("Sample pages")}><label>{$i18n.t("Browse sample pages")} <select aria-label={$i18n.t("Browse sample pages")} value={$page.url.pathname} on:change={(event)=>goto(event.currentTarget.value)}>
+  <option value="/">{$i18n.t("Welcome & chat")}</option><option value="/c/sample-chat">{$i18n.t("Sample conversation")}</option>
+  <option value="/workspace/there">{$i18n.t("Knowledge, skills & research")}</option><option value="/workspace/models">{$i18n.t("Models")}</option><option value="/workspace/knowledge">{$i18n.t("Knowledge workspace")}</option><option value="/workspace/prompts">{$i18n.t("Prompts")}</option><option value="/workspace/skills">{$i18n.t("Skills")}</option><option value="/workspace/tools">{$i18n.t("Tools")}</option>
+  <option value="/notes">{$i18n.t("Notes")}</option><option value="/calendar">{$i18n.t("Calendar")}</option><option value="/automations">{$i18n.t("Automations")}</option><option value="/playground/images">{$i18n.t("Image playground")}</option><option value="/playground/completions">{$i18n.t("Completions playground")}</option>
+  <option value="/admin/users/overview">{$i18n.t("Administration \u00b7 users")}</option><option value="/admin/users/groups">{$i18n.t("Administration \u00b7 groups")}</option><option value="/admin/evaluations">{$i18n.t("Administration \u00b7 evaluations")}</option><option value="/admin/analytics">{$i18n.t("Administration \u00b7 analytics")}</option><option value="/admin/functions">{$i18n.t("Administration \u00b7 functions")}</option><option value="/admin/settings/general">{$i18n.t("Administration \u00b7 settings")}</option>
+  <option value="/?settings=account">{$i18n.t("Account settings")}</option>
+</select></label><StudioLanguagePicker /></nav>
 <div data-preview-route={loadedPath} style="height:calc(100dvh - 86px)" class="flex w-full overflow-hidden bg-white text-gray-900 dark:bg-gray-900 dark:text-gray-100">
   <Sidebar />
-  {#if error}<main class="p-10">{error}</main>
+  {#if error}<main class="p-10">{$i18n.t(error)}</main>
   {:else if Component}
     {#key loadedPath}
       {#if loadedPath.startsWith('/workspace')}<Workspace><svelte:component this={Component}/></Workspace>
       {:else if loadedPath.startsWith('/admin')}<Admin><svelte:component this={Component}/></Admin>
       {:else}<svelte:component this={Component}/>{/if}
     {/key}
-  {:else}<p role="status" class="p-8">Loading sample page…</p>{/if}
+  {:else}<p role="status" class="p-8">{$i18n.t("Loading sample page…")}</p>{/if}
 </div>
 <SettingsModal bind:show={$showSettings}/>
-<style>.preview-pages{padding:8px 16px;background:#0d1a38;color:#bcccf0;font:12px/1.6 Arial,sans-serif;border-bottom:1px solid #24375a}.preview-pages select{margin-left:14px;padding:4px 10px;border:1px solid #354d79;border-radius:5px;background:#132342;color:#f3f6ff;max-width:65vw}</style>
+<style>.preview-pages{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 16px;background:#0d1a38;color:#bcccf0;font:12px/1.6 Arial,sans-serif;border-bottom:1px solid #24375a}.preview-pages select{margin-left:14px;padding:4px 10px;border:1px solid #354d79;border-radius:5px;background:#132342;color:#f3f6ff;max-width:65vw}</style>

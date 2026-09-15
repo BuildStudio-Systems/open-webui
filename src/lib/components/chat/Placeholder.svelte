@@ -122,13 +122,13 @@
 					<div class="there-agent-identity">
 						<img src="/assets/buildstudio-there-emblem.png" alt="There" draggable="false" />
 						<div>
-							<div class="there-agent-eyebrow"><i></i> BUILDSTUDIO AI AGENT</div>
-							<div class="there-agent-status">LOCAL SYSTEM · ONLINE</div>
+							<div class="there-agent-eyebrow"><i></i> {$i18n.t("BUILDSTUDIO AI AGENT")}</div>
+							<div class="there-agent-status">{$i18n.t("LOCAL SYSTEM · ONLINE")}</div>
 						</div>
 					</div>
 
-					<h1>Welcome back, <span>{$user?.name ?? 'User'}.</span></h1>
-					<p>I’m There, BuildStudio’s AI agent. How can I help you today?</p>
+					<h1>{$i18n.t("Welcome back,")} <span>{$user?.name ?? 'User'}.</span></h1>
+					<p>{$i18n.t("I’m There, BuildStudio’s AI agent. How can I help you today?")}</p>
 
 					{#if models[selectedModelIdx]?.name}
 						<button
@@ -174,7 +174,7 @@
 						{onThinkingModeChange}
 						{stopResponse}
 						{createMessagePair}
-						placeholder="Ask There anything..."
+						placeholder={$i18n.t("Ask There anything...")}
 						{onChange}
 						{onUpload}
 						{onUpdate}

@@ -3586,7 +3586,7 @@
 
 		const mergedRequestParams = mergeChatParams($settings?.params, params);
 		const requestParams = modelSupportsThinking(model)
-			? applyThinkingModeToParams(mergedRequestParams, thinkingMode)
+			? applyThinkingModeToParams(mergedRequestParams, thinkingMode, model)
 			: stripThinkingModeParam(mergedRequestParams);
 
 		const res = await generateOpenAIChatCompletion(

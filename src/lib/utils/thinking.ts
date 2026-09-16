@@ -166,7 +166,7 @@ export const setThinkingModeInParams = (params: any = {}, mode: ThinkingMode) =>
 	[THINKING_MODE_PARAM]: normalizeThinkingMode(mode)
 });
 
-export const applyThinkingModeToParams = (params: any = {}, mode: ThinkingMode) => {
+export const applyThinkingModeToParams = (params: any = {}, mode: ThinkingMode, model?: any) => {
 	const normalizedMode = normalizeThinkingMode(mode);
 	const nextParams = stripThinkingParams(params);
 	const customParams = toPlainObject(nextParams.custom_params);
@@ -184,6 +184,29 @@ export const applyThinkingModeToParams = (params: any = {}, mode: ThinkingMode) 
 	}
 
 	customParams.chat_template_kwargs = chatTemplateParams;
+	// The Agent gateway consumes per-request model_options, not Qwen's
+	// top-level template fields. Do not alter gateway-wide defaults.
+	if (modelUsesAgentThinking(model)) {
+		const options = toPlainObject(customParams.model_options);
+		customParams.model_options = {
+			...options,
+			reasoning:
+				normalizedMode === 'off'
+					? { enabled: false }
+					: { enabled: true, effort: MODE_TO_EFFORT[normalizedMode] },
+			reasoning_effort: normalizedMode === 'off' ? 'none' : MODE_TO_EFFORT[normalizedMode],
+			chat_template_kwargs: { ...chatTemplateParams }
+		};
+		delete customParams.chat_template_kwargs;
+	} else if (customParams.model_options !== undefined) {
+		// A model switch must not leak a previous Agent slider selection.
+		const options = toPlainObject(customParams.model_options);
+		delete options.reasoning;
+		delete options.reasoning_effort;
+		delete options.chat_template_kwargs;
+		if (Object.keys(options).length) customParams.model_options = options;
+		else delete customParams.model_options;
+	}
 	nextParams.custom_params = customParams;
 	return nextParams;
 };
@@ -213,9 +236,20 @@ export const mergeChatParams = (base: any = {}, override: any = {}) => {
 	return merged;
 };
 
+export const modelUsesAgentThinking = (model: any) => {
+	const profile = model?.info?.meta?.reasoning?.profile ?? model?.info?.meta?.reasoning_profile;
+	if (profile === 'there-agent') return true;
+	return [model?.id, model?.name, model?.info?.name, model?.info?.base_model_id].some(
+		(value) =>
+			typeof value === 'string' &&
+			/^(there[ -]agent(?:[ -]3\.8)?|hermes-agent)$/i.test(value.trim())
+	);
+};
+
 export const modelSupportsThinking = (model: any) => {
 	if (!model) return false;
 	if (model?.info?.meta?.capabilities?.reasoning === false) return false;
+	if (modelUsesAgentThinking(model)) return true;
 
 	const profile = model?.info?.meta?.reasoning?.profile ?? model?.info?.meta?.reasoning_profile;
 	if (profile === 'qwen3') return true;

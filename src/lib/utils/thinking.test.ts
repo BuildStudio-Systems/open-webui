@@ -14,6 +14,48 @@ import {
 } from './thinking';
 
 describe('thinking mode parameters', () => {
+	it.each(['There-Agent 3.8', 'there-agent-3.8', 'hermes-agent'])(
+		'exposes the shared slider for %s without enabling unrelated models',
+		(id) => {
+			expect(modelSupportsThinking({ id })).toBe(true);
+			expect(
+				modelSupportsThinking({ id, info: { meta: { capabilities: { reasoning: false } } } })
+			).toBe(false);
+			expect(modelSupportsThinking({ id: 'unrelated-agent' })).toBe(false);
+		}
+	);
+	it.each([
+		['off', 'none'],
+		['low', 'low'],
+		['medium', 'medium'],
+		['high', 'xhigh']
+	] as const)('sends Agent %s as request-scoped options', (mode, effort) => {
+		const params = applyThinkingModeToParams(
+			{
+				custom_params: {
+					model_options: { fast: false, reasoning: { enabled: true, effort: 'high' } }
+				}
+			},
+			mode,
+			{ id: 'hermes-agent' }
+		);
+		expect(params.custom_params.model_options).toEqual({
+			fast: false,
+			reasoning: mode === 'off' ? { enabled: false } : { enabled: true, effort },
+			reasoning_effort: effort,
+			chat_template_kwargs:
+				mode === 'off'
+					? { enable_thinking: false, preserve_thinking: false }
+					: { enable_thinking: true, preserve_thinking: true, reasoning_effort: effort }
+		});
+		expect(params.custom_params.chat_template_kwargs).toBeUndefined();
+	});
+	it('clears Agent thinking overrides when switching back to the ordinary model', () => {
+		const agent = applyThinkingModeToParams({}, 'high', { id: 'hermes-agent' });
+		const plain = applyThinkingModeToParams(agent, 'off', { id: 'qwen3.8-27b' });
+		expect(plain.custom_params.model_options).toBeUndefined();
+		expect(plain.custom_params.chat_template_kwargs.enable_thinking).toBe(false);
+	});
 	it('defaults an unconfigured new chat to Fast (thinking off)', () => {
 		expect(resolveChatThinkingMode()).toBe('off');
 		expect(resolveChatThinkingMode({ params: { temperature: 0.7 } })).toBe('off');

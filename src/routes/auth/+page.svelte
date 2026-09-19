@@ -676,8 +676,8 @@
 		--there-muted: #8293ba;
 		--there-primary: #4c78ff;
 		--there-primary-soft: #7da0ff;
-		min-height: 100dvh;
-		max-height: none;
+		min-height: 0;
+		height: calc(100dvh - 44px);
 		color: var(--there-text);
 		background: var(--there-bg);
 	}
@@ -700,15 +700,22 @@
 	}
 
 	#auth-container {
+		/* Reserve the global language bar and constrain the scroll viewport.
+		   min-height alone lets this fixed panel grow below an unscrollable body. */
+		inset: 44px 0 0;
+		min-height: 0;
 		padding: clamp(20px, 4vw, 54px);
-		align-items: center;
+		align-items: flex-start;
 		overflow-y: auto;
+		overscroll-behavior-y: contain;
 		color: var(--there-text);
 	}
 
 	#auth-container > div {
 		width: 100%;
 		min-height: auto;
+		flex-shrink: 0;
+		margin-block: auto;
 		padding: 0;
 	}
 
@@ -1093,6 +1100,17 @@
 
 		#auth-login-card {
 			margin-top: 0;
+		}
+	}
+
+	@media (max-width: 980px) and (max-height: 820px) {
+		/* Keep authentication controls ahead of decorative copy on short screens. */
+		.there-brand-copy {
+			display: none;
+		}
+
+		.there-brand-panel {
+			padding-block: 16px;
 		}
 	}
 

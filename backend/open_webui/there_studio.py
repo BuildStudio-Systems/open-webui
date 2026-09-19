@@ -13,6 +13,13 @@ from open_webui import studio_identity as studio
 
 ORIGIN='https://buildstudio-there.com'
 
+def identity_error_response(error):
+    headers = {'Cache-Control': 'no-store'}
+    request_id = (error.headers or {}).get('X-Studio-Request-ID')
+    if isinstance(request_id, str) and re.fullmatch(r'[a-f0-9]{32}', request_id):
+        headers['X-Studio-Request-ID'] = request_id
+    return JSONResponse({'detail': error.detail}, status_code=error.status_code, headers=headers)
+
 def token_from(request):
     authorization=request.headers.get('authorization','')
     if authorization.lower().startswith('bearer '): return authorization[7:]
@@ -64,13 +71,13 @@ class StudioMiddleware:
             while not task.done():
                 await asyncio.sleep(3)
                 try: await studio.check(token)
-                except HTTPException:
+                except HTTPException as error:
                     if task.done(): return
                     task.cancel()
                     await asyncio.gather(task,return_exceptions=True)
                     try:
                         if not state['started']:
-                            await JSONResponse({'detail':'Your session has ended.'},status_code=401)(scope,receive,send)
+                            await identity_error_response(error)(scope,receive,send)
                         elif not state['finished']:
                             await send({'type':'http.response.body','body':b'','more_body':False})
                     except Exception:
@@ -122,7 +129,7 @@ class StudioMiddleware:
                     response=JSONResponse(True);response.delete_cookie('token',path='/',secure=True,httponly=True,samesite='strict')
                 return await response(scope,receive,send)
         except HTTPException as error:
-            return await JSONResponse({'detail':error.detail},status_code=error.status_code,headers={'Cache-Control':'no-store'})(scope,receive,send)
+            return await identity_error_response(error)(scope,receive,send)
         token=token_from(request)
         if token.startswith('bs1_') and path.startswith(('/api/','/openai/','/ollama/')):
             return await self.protected_http(scope,receive,send,token)

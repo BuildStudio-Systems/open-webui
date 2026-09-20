@@ -1138,6 +1138,9 @@
 
 		.there-brand-name {
 			gap: 8px;
+			/* Keep both words visible when the emblem leaves too little width. */
+			flex-wrap: wrap;
+			row-gap: 4px;
 		}
 
 		.there-brand-name strong {

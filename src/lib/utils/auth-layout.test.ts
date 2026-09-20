@@ -15,6 +15,17 @@ const declarations = (selector: string) => {
 };
 
 describe('authentication viewport regression', () => {
+	it('wraps the mobile wordmark instead of clipping There on a 320px screen', () => {
+		let mobile: Record<string, string> = {};
+		stylesheet.walkAtRules('media', (media) => {
+			if (media.params !== '(max-width: 520px)') return;
+			media.walkRules('.there-brand-name', (rule) => {
+				rule.walkDecls((decl) => { mobile[decl.prop] = decl.value; });
+			});
+		});
+		expect(mobile).toMatchObject({ 'flex-wrap': 'wrap', 'row-gap': '4px' });
+		expect(declarations('.there-brand-wordmark')).toMatchObject({ 'min-width': '0' });
+	});
 	it('bounds the fixed scroll container below the existing language bar', () => {
 		expect(declarations('#auth-container')).toMatchObject({
 			inset: '44px 0 0', 'min-height': '0', 'overflow-y': 'auto', 'align-items': 'flex-start'

@@ -97,6 +97,38 @@ def test_signin_503_keeps_safe_diagnostic_header(middleware):
     asyncio.run(exercise())
 
 
+@pytest.mark.parametrize('status', [200, 401, 503])
+def test_every_auth_response_is_no_store(middleware, status):
+    module, _ = middleware
+    async def exercise():
+        messages = []
+        async def app(_scope, _receive, send):
+            await send({'type': 'http.response.start', 'status': status,
+                        'headers': [(b'cache-control', b'public, max-age=600')]})
+            await send({'type': 'http.response.body', 'body': b'{}'})
+        async def receive(): return {'type': 'http.request', 'body': b'', 'more_body': False}
+        async def send(message): messages.append(message)
+        await module.StudioMiddleware(app)(scope('/api/v1/auths/'), receive, send)
+        headers = dict(messages[0]['headers'])
+        assert headers[b'cache-control'] == b'no-store'
+        assert list(key for key, _ in messages[0]['headers']).count(b'cache-control') == 1
+    asyncio.run(exercise())
+
+
+def test_non_auth_response_cache_policy_is_unchanged(middleware):
+    module, _ = middleware
+    async def exercise():
+        messages = []
+        async def app(_scope, _receive, send):
+            await send({'type': 'http.response.start', 'status': 401, 'headers': []})
+            await send({'type': 'http.response.body', 'body': b'{}'})
+        async def receive(): return {'type': 'http.request', 'body': b'', 'more_body': False}
+        async def send(message): messages.append(message)
+        await module.StudioMiddleware(app)(scope('/api/v1/chats/'), receive, send)
+        assert b'cache-control' not in dict(messages[0]['headers'])
+    asyncio.run(exercise())
+
+
 @pytest.mark.parametrize('request_id', ['PRIVATE', 'a'*32+'\r\nInjected: yes', None])
 def test_error_response_drops_untrusted_ids(middleware, request_id):
     module, _ = middleware

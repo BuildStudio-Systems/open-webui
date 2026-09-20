@@ -6,6 +6,7 @@ import re
 from http.cookies import SimpleCookie
 
 from fastapi import HTTPException
+from starlette.datastructures import MutableHeaders
 from starlette.requests import Request
 from starlette.responses import JSONResponse, RedirectResponse
 
@@ -60,6 +61,19 @@ async def response_for(identity,token):
 class StudioMiddleware:
     def __init__(self,app): self.app=app
 
+    @staticmethod
+    def auth_response_send(path, send):
+        """Keep every human-auth response out of shared and browser caches."""
+        if path != '/api/v1/auths' and not path.startswith('/api/v1/auths/'):
+            return send
+
+        async def send_no_store(message):
+            if message['type'] == 'http.response.start':
+                MutableHeaders(scope=message)['Cache-Control'] = 'no-store'
+            await send(message)
+
+        return send_no_store
+
     async def protected_http(self,scope,receive,send,token):
         state={'started':False,'finished':False}
         async def tracked(message):
@@ -100,6 +114,7 @@ class StudioMiddleware:
         request=Request(scope,receive)
         path=scope['path'].rstrip('/')
         method=scope['method']
+        send=self.auth_response_send(path,send)
         try:
             if method=='GET' and path in ('/admin/users','/admin/users/create'):
                 return await RedirectResponse('https://buildstudio-systems.com/admin/',status_code=303)(scope,receive,send)

@@ -3,10 +3,7 @@
 @config '../tailwind.config.js';
 
 @theme {
-	--font-sans:
-		var(--app-font-family, -apple-system), BlinkMacSystemFont, 'Inter', 'Vazirmatn', ui-sans-serif,
-		system-ui, 'Segoe UI', Roboto, Ubuntu, Cantarell, 'Noto Sans', sans-serif, 'Helvetica Neue',
-		Arial, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+	--font-sans: var(--app-font-family, var(--studio-language-font));
 	--font-primary: var(--font-sans);
 	--font-secondary: var(--font-sans);
 
@@ -31,6 +28,27 @@
 	--color-red-500: #ef4052;
 }
 
+:root {
+	--studio-font-en: 'Inter', Arial, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+		'Segoe UI', sans-serif;
+	--studio-font-ja: 'Noto Sans JP', 'Yu Gothic UI', 'Yu Gothic', 'Hiragino Kaku Gothic ProN',
+		sans-serif;
+	--studio-font-zh: 'Noto Sans SC', 'Microsoft YaHei', 'PingFang SC', sans-serif;
+	--studio-language-font: var(--studio-font-en);
+}
+
+html[lang='en-US'] {
+	--studio-language-font: var(--studio-font-en);
+}
+
+html[lang='ja-JP'] {
+	--studio-language-font: var(--studio-font-ja);
+}
+
+html[lang='zh-CN'] {
+	--studio-language-font: var(--studio-font-zh);
+}
+
 /*
   The default border color has changed to `currentColor` in Tailwind CSS v4,
   so we've added these compatibility styles to make sure everything still
@@ -51,6 +69,10 @@
 
 @layer base {
 	html {
+		font-family: var(--font-sans);
+	}
+
+	body {
 		font-family: var(--font-sans);
 	}
 

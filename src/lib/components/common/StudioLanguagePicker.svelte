@@ -14,7 +14,4 @@
 </details>
 <style>
 .studio-language-picker{position:relative;flex-shrink:0;font-size:13px}.studio-language-picker summary{display:flex;align-items:center;gap:8px;list-style:none;cursor:pointer;border:1px solid #63718a66;border-radius:7px;padding:6px 10px;min-height:32px}.studio-language-picker summary::-webkit-details-marker{display:none}.studio-language-picker img{width:21px;height:14px;border-radius:2px}.studio-language-options{position:absolute;right:0;top:calc(100% + 6px);min-width:150px;background:#15213a;color:#f1f5fc;border:1px solid #3a4c69;border-radius:8px;padding:5px;z-index:100;box-shadow:0 12px 30px #0005}.studio-language-options button{display:flex;align-items:center;gap:10px;width:100%;padding:9px;text-align:left;border-radius:4px}.studio-language-options button:hover,.studio-language-options button:focus-visible{background:#294161}.studio-language-options button span{margin-left:auto}
-:global(html[lang="en-US"] body){font-family:Inter,Arial,sans-serif}
-:global(html[lang="ja-JP"] body){font-family:"Noto Sans JP","Yu Gothic UI","Hiragino Kaku Gothic ProN",sans-serif}
-:global(html[lang="zh-CN"] body){font-family:"Noto Sans SC","Microsoft YaHei","PingFang SC",sans-serif}
 </style>

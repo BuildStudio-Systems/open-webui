@@ -33,7 +33,7 @@
   $: if($page.url.pathname!==requested)void open($page.url.pathname)
   $: if($page.url.searchParams.has('settings'))showSettings.set($page.url.searchParams.get('settings')!)
 </script>
-<nav class="preview-pages" aria-label={$i18n.t("Sample pages")}><label>{$i18n.t("Browse sample pages")} <select aria-label={$i18n.t("Browse sample pages")} value={$page.url.pathname} on:change={(event)=>goto(event.currentTarget.value)}>
+<nav class="preview-pages" aria-label={$i18n.t("Sample pages")}><label><span class="preview-page-label">{$i18n.t("Browse sample pages")}</span> <select aria-label={$i18n.t("Browse sample pages")} value={$page.url.pathname} on:change={(event)=>goto(event.currentTarget.value)}>
   <option value="/">{$i18n.t("Welcome & chat")}</option><option value="/c/sample-chat">{$i18n.t("Sample conversation")}</option>
   <option value="/workspace/there">{$i18n.t("Knowledge, skills & research")}</option><option value="/workspace/models">{$i18n.t("Models")}</option><option value="/workspace/knowledge">{$i18n.t("Knowledge workspace")}</option><option value="/workspace/prompts">{$i18n.t("Prompts")}</option><option value="/workspace/skills">{$i18n.t("Skills")}</option><option value="/workspace/tools">{$i18n.t("Tools")}</option>
   <option value="/notes">{$i18n.t("Notes")}</option><option value="/calendar">{$i18n.t("Calendar")}</option><option value="/automations">{$i18n.t("Automations")}</option><option value="/playground/images">{$i18n.t("Image playground")}</option><option value="/playground/completions">{$i18n.t("Completions playground")}</option>
@@ -52,4 +52,13 @@
   {:else}<p role="status" class="p-8">{$i18n.t("Loading sample page…")}</p>{/if}
 </div>
 <SettingsModal bind:show={$showSettings}/>
-<style>.preview-pages{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 16px;background:#0d1a38;color:#bcccf0;font:12px/1.6 Arial,sans-serif;border-bottom:1px solid #24375a}.preview-pages select{margin-left:14px;padding:4px 10px;border:1px solid #354d79;border-radius:5px;background:#132342;color:#f3f6ff;max-width:65vw}</style>
+<style>
+  .preview-pages{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 16px;background:#0d1a38;color:#bcccf0;font:12px/1.6 Arial,sans-serif;border-bottom:1px solid #24375a}
+  .preview-pages select{margin-left:14px;padding:4px 10px;border:1px solid #354d79;border-radius:5px;background:#132342;color:#f3f6ff;max-width:65vw}
+  @media (max-width:480px){
+    .preview-pages{gap:8px;padding-inline:8px}
+    .preview-pages label{display:flex;align-items:center;flex:1 1 0;min-width:0}
+    .preview-page-label{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);clip-path:inset(50%);white-space:nowrap;border:0}
+    .preview-pages select{flex:1 1 auto;width:100%;min-width:0;max-width:100%;margin-left:0}
+  }
+</style>

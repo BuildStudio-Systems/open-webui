@@ -37,7 +37,7 @@ def test_transport_diagnostics_are_safe_and_correlated(client, monkeypatch, capl
     def fail(request, timeout):
         captured.append((request, timeout))
         raise urllib.error.URLError(reason)
-    monkeypatch.setattr(client.urllib.request, 'urlopen', fail)
+    monkeypatch.setattr(client._opener, 'open', fail)
     with caplog.at_level(logging.WARNING), pytest.raises(HTTPException) as caught:
         client._request('login', {'login': 'fixture-private-user', 'password': 'fixture-private-password'}, 'fixture-private-source')
     error = caught.value
@@ -56,7 +56,7 @@ def test_transport_diagnostics_are_safe_and_correlated(client, monkeypatch, capl
 def test_business_statuses_stay_intact_and_upstream_bodies_never_log(client, monkeypatch, caplog, status):
     def fail(*args, **kwargs):
         raise urllib.error.HTTPError('https://private.invalid/', status, 'fixture-private-message', {}, io.BytesIO(b'fixture-private-body'))
-    monkeypatch.setattr(client.urllib.request, 'urlopen', fail)
+    monkeypatch.setattr(client._opener, 'open', fail)
     with caplog.at_level(logging.WARNING), pytest.raises(HTTPException) as caught:
         client._request('check', {'token': 'fixture-private-token'})
     expected = status if status < 500 else 503
@@ -69,7 +69,7 @@ def test_business_statuses_stay_intact_and_upstream_bodies_never_log(client, mon
 
 
 def test_invalid_json_and_unknown_action_are_sanitized(client, monkeypatch, caplog):
-    monkeypatch.setattr(client.urllib.request, 'urlopen', lambda *a, **k: io.BytesIO(b'fixture-private-malformed'))
+    monkeypatch.setattr(client._opener, 'open', lambda *a, **k: io.BytesIO(b'fixture-private-malformed'))
     with caplog.at_level(logging.WARNING), pytest.raises(HTTPException) as caught:
         client._request('fixture-private-action', {})
     assert caught.value.status_code == 503
@@ -79,7 +79,7 @@ def test_invalid_json_and_unknown_action_are_sanitized(client, monkeypatch, capl
 
 def test_success_is_not_logged_and_response_is_unchanged(client, monkeypatch, caplog):
     result = {'token': 'fixture-private-session', 'person': {'name': 'fixture-private-name'}}
-    monkeypatch.setattr(client.urllib.request, 'urlopen', lambda *a, **k: io.BytesIO(json.dumps(result).encode()))
+    monkeypatch.setattr(client._opener, 'open', lambda *a, **k: io.BytesIO(json.dumps(result).encode()))
     with caplog.at_level(logging.WARNING):
         assert client._request('login', {}) == result
     assert not caplog.records
@@ -91,7 +91,7 @@ def test_expired_cache_does_not_mask_failed_revalidation(client, monkeypatch):
     client._cache[key] = (0, {'stale': True})
     def fail(*args, **kwargs):
         raise TimeoutError('fixture-private-error')
-    monkeypatch.setattr(client.urllib.request, 'urlopen', fail)
+    monkeypatch.setattr(client._opener, 'open', fail)
     with pytest.raises(HTTPException) as caught:
         asyncio.run(client.check(token))
     assert caught.value.status_code == 503 and key not in client._cache

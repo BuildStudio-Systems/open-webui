@@ -20,6 +20,15 @@ _cache = {}
 log = logging.getLogger(__name__)
 
 
+class _RejectRedirects(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, request, response, code, message, headers, new_url):
+        # Identity headers and payloads belong only to the configured endpoint.
+        return None
+
+
+_opener = urllib.request.build_opener(_RejectRedirects())
+
+
 def _failure_kind(error):
     reason = error.reason if isinstance(error, urllib.error.URLError) else error
     if isinstance(reason, (TimeoutError, socket.timeout)):
@@ -52,10 +61,11 @@ def _request(action, body, source='unknown'):
     started = time.monotonic()
     request = urllib.request.Request(URL+action, data=json.dumps(body).encode(), headers={'Content-Type':'application/json','X-Studio-Client':APP,'X-Studio-Key':os.environ.get('STUDIO_IDENTITY_KEY',''),'X-Studio-Source':source[:160],'X-Studio-Request-ID':request_id}, method='POST')
     try:
-        with urllib.request.urlopen(request, timeout=3) as response:
+        with _opener.open(request, timeout=3) as response:
             return json.loads(response.read(16384))
     except urllib.error.HTTPError as error:
         status = error.code if error.code in (401,403,409,422,429) else 503
+        error.close()
         if status == 503:
             _log_unavailable(action, request_id, started, 'upstream_http', error.code)
         messages={401:'Your credentials or session are no longer valid.',403:'This account does not have access to this system.',409:'This account needs review in Systems management.',422:'Check your username and password. New passwords require 12 characters.',429:'Too many sign-in attempts. Try again in 15 minutes.'}

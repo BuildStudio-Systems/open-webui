@@ -13,12 +13,12 @@
 	import { getTools } from '$lib/apis/tools';
 	import { getBanners } from '$lib/apis/configs';
 	import { getTerminalServers } from '$lib/apis/terminal';
-	import { getUserSettings } from '$lib/apis/users';
+	import { getUserSettings, updateUserSettings } from '$lib/apis/users';
 	import { setAppFontFamily, setTextScale } from '$lib/utils/text-scale';
 
 	import { WEBUI_VERSION, WEBUI_API_BASE_URL } from '$lib/constants';
 	import { compareVersion } from '$lib/utils';
-	import { changeLanguage } from '$lib/i18n';
+	import { changeLanguage, applyAccountLanguage } from '$lib/i18n';
 
 	import {
 		config,
@@ -96,6 +96,11 @@
 		if (userSettings?.ui) {
 			settings.set(userSettings.ui);
 		}
+		// The account's dashboard language (settings.ui.language) follows the person across browsers.
+		applyAccountLanguage($settings?.language, async (language: string) => {
+			settings.set({ ...$settings, language });
+			await updateUserSettings(localStorage.token, { ui: $settings });
+		});
 		loadKeybindings(userSettings?.keybindings);
 
 		setTextScale($settings?.textScale ?? 1);

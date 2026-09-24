@@ -216,6 +216,8 @@ type OllamaModelDetails = {
 };
 
 type Settings = {
+	/** The account's dashboard language (en-US / ja-JP / zh-CN), kept in the user settings (2026-09-24). */
+	language?: string;
 	pinnedModels?: string[];
 	toolServers?: never[];
 	detectArtifacts?: boolean;

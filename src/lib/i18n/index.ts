@@ -84,11 +84,36 @@ export const getLanguages = async () => {
 	const languages = (await import(`./locales/languages.json`)).default.filter((l) => ['en-US','ja-JP','zh-CN'].includes(l.code));
 	return languages;
 };
+export const normalizeStudioLanguage = (raw: string) => raw.startsWith('ja') ? 'ja-JP' : raw.startsWith('zh') ? 'zh-CN' : 'en-US';
 export const changeLanguage = (raw: string) => {
-  const lang = raw.startsWith('ja') ? 'ja-JP' : raw.startsWith('zh') ? 'zh-CN' : 'en-US';
+  const lang = normalizeStudioLanguage(raw);
   try { localStorage.setItem('locale',lang) } catch { /* Optional persistence. */ }
   if (i18next.language !== lang) void i18next.changeLanguage(lang);
 };
+
+// Per-account language (2026-09-24): the signed-in account keeps its choice in the user settings
+// (settings.ui.language). It is applied after sign-in unless the URL names ?lang=, and a choice made
+// in the picker while signed in is written back so the next sign-in opens in it (on any browser).
+let accountSaver: ((lang: string) => Promise<unknown>) | null = null;
+let accountLanguage: string | null = null;
+const explicitUrlLanguage = () => {
+  try { return typeof window !== 'undefined' && !!new URLSearchParams(window.location.search).get('lang'); } catch { return false; }
+};
+export const applyAccountLanguage = (raw: unknown, saver: ((lang: string) => Promise<unknown>) | null) => {
+  accountSaver = saver;
+  if (typeof raw !== 'string' || !raw) { accountLanguage = null; return; }
+  accountLanguage = normalizeStudioLanguage(raw);
+  if (!explicitUrlLanguage()) changeLanguage(accountLanguage);
+};
+export const chooseLanguage = (raw: string) => {
+  const lang = normalizeStudioLanguage(raw);
+  changeLanguage(lang);
+  if (accountSaver && accountLanguage !== lang) {
+    accountLanguage = lang;
+    void accountSaver(lang).catch(() => { /* the browser keeps the choice */ });
+  }
+};
+export const accountLanguageForTests = () => accountLanguage;
 if (typeof window !== 'undefined') window.addEventListener('message', (event) => {
   if (event.source !== window.parent || event.origin !== window.location.origin || event.data?.type !== 'buildstudio:locale' || !['en','ja','zh'].includes(event.data.locale)) return;
   changeLanguage(event.data.locale);

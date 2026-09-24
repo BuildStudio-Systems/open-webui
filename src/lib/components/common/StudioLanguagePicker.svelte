@@ -1,10 +1,10 @@
 <script lang="ts">
-  import i18n, { changeLanguage } from '$lib/i18n'
+  import i18n, { chooseLanguage } from '$lib/i18n'
   import { languageFlags } from '$lib/i18n/flags'
   let open = false
   const languages = [{code:'en-US',flag:'en',label:'English'},{code:'ja-JP',flag:'ja',label:'日本語'},{code:'zh-CN',flag:'zh',label:'中文'}] as const
   $: current = languages.find(l => l.code === $i18n.language) ?? languages[0]
-  function choose(code: string) { changeLanguage(code); open = false }
+  function choose(code: string) { chooseLanguage(code); open = false }
 </script>
 <details class="studio-language-picker" bind:open>
   <summary aria-label={$i18n.t('Language')}><img src={languageFlags[current.flag]} alt=""/><span>{current.label}</span><span aria-hidden="true">⌄</span></summary>

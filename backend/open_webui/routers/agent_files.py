@@ -3,18 +3,32 @@ from __future__ import annotations
 import re
 from collections.abc import AsyncIterator
 
+import anyio
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response, StreamingResponse
 
+from open_webui.models.chats import Chats
 from open_webui.routers.openai import get_openai_runtime_config
-from open_webui.utils.agent_file_delivery import file_owner_headers, is_local_hermes_url
+from open_webui.utils.agent_file_delivery import (
+    AGENT_CHAT_HEADER,
+    AgentChatBindingError,
+    file_owner_headers,
+    is_local_hermes_url,
+    require_agent_chat_owner,
+)
 from open_webui.utils.auth import get_admin_user
 
 router = APIRouter()
 _ARTIFACT_ID_RE = re.compile(r"^[0-9a-f]{32}$")
 _DOWNLOAD_TIMEOUT = httpx.Timeout(connect=10.0, read=120.0, write=10.0, pool=10.0)
 _DOWNLOAD_LIMITS = httpx.Limits(max_connections=50, max_keepalive_connections=10)
+_DOWNLOAD_CLOSE_TIMEOUT_SECONDS = 5.0
+
+
+async def _close_download_resource(resource) -> None:
+    with anyio.move_on_after(_DOWNLOAD_CLOSE_TIMEOUT_SECONDS, shield=True):
+        await resource.aclose()
 
 
 async def _hermes_connection() -> tuple[str, dict[str, str]]:
@@ -88,25 +102,42 @@ async def download_agent_file(
         upstream_request = client.build_request("GET", f"{base_url}/files/{artifact_id}", headers=headers)
         response = await client.send(upstream_request, stream=True)
     except httpx.TimeoutException as exc:
-        await client.aclose()
+        await _close_download_resource(client)
         raise HTTPException(status_code=504, detail="Agent file download timed out") from exc
     except httpx.RequestError as exc:
-        await client.aclose()
+        await _close_download_resource(client)
         raise HTTPException(status_code=502, detail="Agent file download failed") from exc
+    except BaseException:
+        await _close_download_resource(client)
+        raise
+
+    async def close() -> None:
+        try:
+            await _close_download_resource(response)
+        finally:
+            await _close_download_resource(client)
+
+    # This header comes from the Agent's stored artifact record, never the
+    # browser. Check before reading bytes or publishing response headers. Legacy
+    # links without a binding keep their existing owner/TTL policy.
+    bound_chat_id = response.headers.get(AGENT_CHAT_HEADER)
+    if bound_chat_id is not None:
+        try:
+            await require_agent_chat_owner(bound_chat_id, _user.id, Chats.is_chat_owner)
+        except AgentChatBindingError:
+            await close()
+            raise HTTPException(status_code=404, detail="File not found or link expired") from None
+        except BaseException:
+            await close()
+            raise
 
     if response.status_code == 416:
         response_headers = _download_headers(response, include_content_length=False)
-        try:
-            await response.aclose()
-        finally:
-            await client.aclose()
+        await close()
         return Response(status_code=416, headers=response_headers)
     if response.is_error:
         error = _upstream_error(response)
-        try:
-            await response.aclose()
-        finally:
-            await client.aclose()
+        await close()
         raise error
 
     async def stream() -> AsyncIterator[bytes]:
@@ -114,10 +145,7 @@ async def download_agent_file(
             async for chunk in response.aiter_raw(1024 * 1024):
                 yield chunk
         finally:
-            try:
-                await response.aclose()
-            finally:
-                await client.aclose()
+            await close()
 
     return StreamingResponse(
         stream(),

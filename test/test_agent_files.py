@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import os
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
+import anyio
+import httpx
 import pytest
 
 
@@ -260,3 +263,166 @@ async def test_openai_requests_bind_local_hermes_to_verified_user(
     assert local_headers["X-BuildStudio-User-Id"] == "user-1"
     assert "X-BuildStudio-User-Id" not in remote_headers
     assert "X-BuildStudio-User-Id" not in customer_headers
+
+
+@pytest.fixture
+def bound_download(agent_files_module, monkeypatch):
+    """Synthetic response only: no network, user data, or physical artifact."""
+    state = SimpleNamespace(
+        response_closed=False, client_closed=False, body_read=False,
+        chat_id="c66d52ba-ae53-44c5-8ed0-56b19992cab0", status_code=200,
+        headers={}, response_close_wait=None,
+    )
+
+    class FakeResponse:
+        @property
+        def status_code(self):
+            return state.status_code
+
+        @property
+        def is_error(self):
+            return state.status_code >= 400
+
+        @property
+        def headers(self):
+            return httpx.Headers(state.headers)
+
+        async def aiter_raw(self, _chunk_size):
+            state.body_read = True
+            yield b"synthetic artifact"
+
+        async def aclose(self):
+            if state.response_close_wait is not None:
+                await state.response_close_wait()
+            await anyio.sleep(0)
+            state.response_closed = True
+
+    class FakeClient:
+        def __init__(self, **_kwargs):
+            pass
+
+        def build_request(self, method, url, headers):
+            state.request_headers = headers
+            return object()
+
+        async def send(self, request, stream):
+            assert stream is True
+            return FakeResponse()
+
+        async def aclose(self):
+            await anyio.sleep(0)
+            state.client_closed = True
+
+    async def connection():
+        return "http://127.0.0.1:8642/v1", {"Authorization": "Bearer synthetic-key"}
+
+    state.ownership = AsyncMock(return_value=True)
+    monkeypatch.setattr(agent_files_module, "_hermes_connection", connection)
+    monkeypatch.setattr(agent_files_module.httpx, "AsyncClient", FakeClient)
+    monkeypatch.setattr(agent_files_module.Chats, "is_chat_owner", state.ownership)
+    state.headers = {agent_files_module.AGENT_CHAT_HEADER: state.chat_id}
+
+    async def download():
+        return await agent_files_module.download_agent_file(
+            "a" * 32, "report.txt",
+            SimpleNamespace(headers={"X-BuildStudio-Chat-Id": "browser-spoofed-chat"}),
+            _user=SimpleNamespace(id="admin-a", role="admin"),
+        )
+
+    state.download = download
+    return state
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status_code", [200, 206])
+async def test_bound_download_checks_owner_before_read_and_hides_internal_header(
+    bound_download, status_code,
+):
+    state = bound_download
+    state.status_code = status_code
+    response = await state.download()
+    state.ownership.assert_awaited_once_with(state.chat_id, "admin-a")
+    assert state.body_read is False
+    assert "x-buildstudio-chat-id" not in response.headers
+    assert "X-BuildStudio-Chat-Id" not in state.request_headers
+    assert b"".join([chunk async for chunk in response.body_iterator]) == b"synthetic artifact"
+    assert state.client_closed and state.response_closed
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status_code", [200, 206, 304, 416])
+async def test_deleted_or_foreign_chat_denies_bound_download_and_closes_before_body(
+    agent_files_module, bound_download, status_code,
+):
+    state = bound_download
+    state.status_code = status_code
+    state.ownership.return_value = False
+    with pytest.raises(agent_files_module.HTTPException) as caught:
+        await state.download()
+    assert caught.value.status_code == 404
+    assert not state.body_read
+    assert state.client_closed and state.response_closed
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("chat_id", ["", "not-a-uuid", "C66D52BA-AE53-44C5-8ED0-56B19992CAB0", "temporary:socket"])
+async def test_invalid_artifact_chat_binding_is_not_legacy(
+    agent_files_module, bound_download, chat_id,
+):
+    state = bound_download
+    state.headers[agent_files_module.AGENT_CHAT_HEADER] = chat_id
+    with pytest.raises(agent_files_module.HTTPException) as caught:
+        await state.download()
+    assert caught.value.status_code == 404
+    state.ownership.assert_not_awaited()
+    assert not state.body_read
+    assert state.client_closed and state.response_closed
+
+
+@pytest.mark.asyncio
+async def test_legacy_without_artifact_chat_header_keeps_owner_ttl_compatibility(bound_download):
+    state = bound_download
+    state.headers = {}
+    response = await state.download()
+    state.ownership.assert_not_awaited()
+    assert b"".join([chunk async for chunk in response.body_iterator]) == b"synthetic artifact"
+    assert state.client_closed and state.response_closed
+
+
+@pytest.mark.asyncio
+async def test_download_binding_database_exception_releases_both_resources(bound_download):
+    state = bound_download
+    state.ownership.side_effect = RuntimeError("synthetic database unavailable")
+    with pytest.raises(RuntimeError):
+        await state.download()
+    assert not state.body_read
+    assert state.client_closed and state.response_closed
+
+
+@pytest.mark.asyncio
+async def test_cancel_during_download_binding_shields_async_resource_cleanup(bound_download):
+    state = bound_download
+    with anyio.CancelScope() as scope:
+        async def cancel_lookup(*_args):
+            scope.cancel()
+            await anyio.sleep(0)
+
+        state.ownership.side_effect = cancel_lookup
+        await state.download()
+    assert not state.body_read
+    assert state.client_closed and state.response_closed
+
+
+@pytest.mark.asyncio
+async def test_close_timeout_still_attempts_client_close(
+    agent_files_module, bound_download, monkeypatch,
+):
+    state = bound_download
+    state.ownership.return_value = False
+    state.response_close_wait = anyio.sleep_forever
+    monkeypatch.setattr(agent_files_module, "_DOWNLOAD_CLOSE_TIMEOUT_SECONDS", 0.01)
+    with pytest.raises(agent_files_module.HTTPException) as caught:
+        await state.download()
+    assert caught.value.status_code == 404
+    assert not state.body_read
+    assert state.client_closed

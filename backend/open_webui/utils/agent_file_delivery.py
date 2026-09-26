@@ -1,10 +1,17 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Awaitable, Callable
 from typing import Any
 from urllib.parse import urlsplit
+from uuid import UUID
 
 FILE_OWNER_HEADER = 'X-BuildStudio-User-Id'
+AGENT_CHAT_HEADER = 'X-BuildStudio-Chat-Id'
+_RESERVED_AGENT_HEADERS = frozenset({
+    FILE_OWNER_HEADER.lower(), AGENT_CHAT_HEADER.lower(),
+    'x-hermes-session-id', 'x-hermes-session-key',
+})
 _OWNER_RE = re.compile(r'^[A-Za-z0-9._:-]{1,128}$')
 _LOOPBACK_HOSTS = frozenset({'127.0.0.1', '::1', 'localhost'})
 
@@ -89,3 +96,60 @@ def file_owner_headers(user: Any) -> dict[str, str]:
     if not _OWNER_RE.fullmatch(owner_id):
         return {}
     return {FILE_OWNER_HEADER: owner_id}
+
+
+class AgentChatBindingError(PermissionError):
+    """The requested saved Agent chat is not owned by the current administrator."""
+
+
+async def require_agent_chat_owner(
+    chat_id: str,
+    owner_id: str,
+    is_chat_owner: Callable[[str, str], Awaitable[bool]],
+) -> None:
+    """Check an exact saved chat against PostgreSQL for requests and downloads."""
+    if not isinstance(chat_id, str):
+        raise AgentChatBindingError('Agent chat is unavailable')
+    try:
+        canonical = str(UUID(chat_id))
+    except ValueError:
+        raise AgentChatBindingError('Agent chat is unavailable') from None
+    if canonical != chat_id or not await is_chat_owner(chat_id, owner_id):
+        raise AgentChatBindingError('Agent chat is unavailable')
+
+
+async def bind_agent_request_headers(
+    headers: dict[str, str],
+    url: str,
+    user: Any,
+    metadata: dict | None,
+    is_chat_owner: Callable[[str, str], Awaitable[bool]],
+) -> dict[str, str]:
+    """Bind a saved chat from the authoritative Web database, never caller headers.
+
+    This is an execution namespace, not permission to load Hermes history. The
+    existing Web message history remains authoritative. Temporary/channel/API
+    requests have no saved-chat binding; other providers are left unchanged.
+    """
+    if not is_local_hermes_url(url):
+        return headers
+
+    bound = {key: value for key, value in headers.items()
+             if key.lower() not in _RESERVED_AGENT_HEADERS}
+    owner_headers = file_owner_headers(user)
+    bound.update(owner_headers)
+    if not owner_headers or metadata is None:
+        return bound
+    if not isinstance(metadata, dict):
+        raise AgentChatBindingError('Agent chat is unavailable')
+    chat_id = metadata.get('chat_id')
+    if chat_id is None or chat_id == '':
+        return bound
+    if not isinstance(chat_id, str):
+        raise AgentChatBindingError('Agent chat is unavailable')
+    if chat_id.startswith(('temporary:', 'local:', 'channel:')):
+        return bound
+    owner_id = owner_headers[FILE_OWNER_HEADER]
+    await require_agent_chat_owner(chat_id, owner_id, is_chat_owner)
+    bound[AGENT_CHAT_HEADER] = chat_id
+    return bound

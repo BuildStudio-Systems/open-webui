@@ -35,16 +35,16 @@ from open_webui.env import (
 from open_webui.events import EVENTS, publish_event, publish_model_provider_request_failed
 from open_webui.internal.db import get_async_session
 from open_webui.models.access_grants import AccessGrants
+from open_webui.models.chats import Chats
 from open_webui.models.config import Config
 from open_webui.models.groups import Groups
 from open_webui.models.models import Models
 from open_webui.models.users import UserModel
 from open_webui.utils.access_control import check_model_access, has_connection_access, has_permission
 from open_webui.utils.agent_file_delivery import (
-    FILE_OWNER_HEADER,
-    file_owner_headers,
+    AgentChatBindingError,
+    bind_agent_request_headers,
     with_agent_attachment_guidance,
-    is_local_hermes_url,
 )
 from open_webui.utils.anthropic import ANTHROPIC_VERSION, get_anthropic_models, is_anthropic_url
 from open_webui.utils.auth import get_admin_user, get_verified_user
@@ -223,14 +223,14 @@ async def get_headers_and_cookies(
         custom_headers = await get_custom_headers(config.get('headers'), user, metadata, request=request)
         headers.update(custom_headers)
 
-    # Bind Hermes-generated download links only for administrators. The shared
-    # Hermes media cache is not a customer tenant boundary. Apply this after
-    # custom headers so clients/config cannot spoof ownership.
-    if user and is_local_hermes_url(url):
-        for header_name in tuple(headers):
-            if header_name.lower() == FILE_OWNER_HEADER.lower():
-                del headers[header_name]
-        headers.update(file_owner_headers(user))
+    # Run after custom-header expansion: ownership and saved-chat execution
+    # namespaces are server authority, never configurable continuation handles.
+    try:
+        headers = await bind_agent_request_headers(
+            headers, url, user, metadata, Chats.is_chat_owner
+        )
+    except AgentChatBindingError:
+        raise HTTPException(status_code=403, detail='Agent chat is unavailable') from None
 
     return headers, cookies
 

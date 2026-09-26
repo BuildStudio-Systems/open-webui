@@ -1,4 +1,6 @@
 {
+  "Speech playback failed": "Speech playback failed",
+  "Speech playback timed out": "Speech playback timed out",
   "-1 for no limit, or a positive integer for a specific limit": "",
   "(latest)": "",
   "(leave blank for to use commercial endpoint)": "",

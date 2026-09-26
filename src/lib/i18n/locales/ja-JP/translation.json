@@ -1,4 +1,6 @@
 {
+  "Speech playback failed": "音声の再生に失敗しました",
+  "Speech playback timed out": "音声の再生がタイムアウトしました",
   "-1 for no limit, or a positive integer for a specific limit": "-1で無制限、または正の整数で制限を指定",
   "(latest)": "(最新)",
   "(leave blank for to use commercial endpoint)": "(商用エンドポイントを使用する場合は空欄のままにしてください)",

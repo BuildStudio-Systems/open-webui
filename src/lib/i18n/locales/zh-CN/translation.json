@@ -1,4 +1,6 @@
 {
+  "Speech playback failed": "语音播放失败",
+  "Speech playback timed out": "语音播放超时",
   "Fastest · direct answers": "最快响应 · 不启用思考",
   "Quick reasoning · everyday tasks": "轻度思考 · 日常任务",
   "Balanced · complex questions": "均衡思考 · 复杂问题",

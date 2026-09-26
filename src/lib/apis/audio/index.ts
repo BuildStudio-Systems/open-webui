@@ -64,7 +64,12 @@ export const updateAudioConfig = async (token: string, payload: OpenAIConfigForm
 	return res;
 };
 
-export const transcribeAudio = async (token: string, file: File, language?: string) => {
+export const transcribeAudio = async (
+	token: string,
+	file: File,
+	language?: string,
+	signal?: AbortSignal
+) => {
 	const data = new FormData();
 	data.append('file', file);
 	if (language) {
@@ -78,14 +83,16 @@ export const transcribeAudio = async (token: string, file: File, language?: stri
 			Accept: 'application/json',
 			authorization: `Bearer ${token}`
 		},
-		body: data
+		body: data,
+		signal
 	})
 		.then(async (res) => {
 			if (!res.ok) throw await res.json();
 			return res.json();
 		})
 		.catch((err) => {
-			error = err.detail;
+			if (signal?.aborted || err?.name === 'AbortError') throw err;
+			error = err?.detail || err?.message || 'Audio transcription failed';
 			console.error(err);
 			return null;
 		});
@@ -101,7 +108,8 @@ export const synthesizeOpenAISpeech = async (
 	token: string = '',
 	speaker: string = 'alloy',
 	text: string = '',
-	model?: string
+	model?: string,
+	signal?: AbortSignal
 ) => {
 	let error = null;
 
@@ -111,6 +119,7 @@ export const synthesizeOpenAISpeech = async (
 			Authorization: `Bearer ${token}`,
 			'Content-Type': 'application/json'
 		},
+		signal,
 		body: JSON.stringify({
 			input: text,
 			voice: speaker,
@@ -122,7 +131,8 @@ export const synthesizeOpenAISpeech = async (
 			return res;
 		})
 		.catch((err) => {
-			error = err.detail;
+			if (signal?.aborted || err?.name === 'AbortError') throw err;
+			error = err?.detail || err?.message || 'Speech generation failed';
 			console.error(err);
 
 			return null;

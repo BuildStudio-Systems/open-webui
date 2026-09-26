@@ -12,8 +12,13 @@
 
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
 	import VideoInputMenu from './CallOverlay/VideoInputMenu.svelte';
-	import { KokoroWorker } from '$lib/workers/KokoroWorker';
 	import { WEBUI_API_BASE_URL } from '$lib/constants';
+	import {
+		isVoiceAbort,
+		recordingBlob,
+		recordingMimeType,
+		voiceRequest
+	} from '$lib/utils/voice-session';
 
 	const i18n = getContext('i18n');
 
@@ -24,7 +29,7 @@
 	export let chatId;
 	export let modelId;
 
-	let wakeLock = null;
+	let wakeLock: WakeLockSentinel | null = null;
 
 	let model = null;
 
@@ -36,17 +41,27 @@
 
 	let emoji = null;
 	let camera = false;
-	let cameraStream = null;
+	let cameraStream: MediaStream | null = null;
+	let cameraGeneration = 0;
 
 	let chatStreaming = false;
 	let rmsLevel = 0;
 	let hasStartedSpeaking = false;
-	let mediaRecorder;
-	let audioStream = null;
-	let audioChunks = [];
+	let mediaRecorder: MediaRecorder | null = null;
+	let audioStream: MediaStream | null = null;
+	let audioChunks: Blob[] = [];
+	let closed = false;
+	const callAbortController = new AbortController();
+	let audioContext: AudioContext | null = null;
+	let audioAnalyser: AnalyserNode | null = null;
+	let analysisFrame = 0;
+	const callActive = () => !closed && $showCallOverlay;
+	const showVoiceError = (error: unknown) => {
+		if (callActive() && !isVoiceAbort(error)) toast.error(`${error}`);
+	};
 
-	let videoInputDevices = [];
-	let selectedVideoInputDeviceId = null;
+	let videoInputDevices: { deviceId: string; label: string }[] = [];
+	let selectedVideoInputDeviceId: string | null = null;
 
 	const getVideoInputDevices = async () => {
 		const devices = await navigator.mediaDevices.enumerateDevices();
@@ -62,7 +77,6 @@
 			];
 		}
 
-		console.log(videoInputDevices);
 		if (selectedVideoInputDeviceId === null && videoInputDevices.length > 0) {
 			const savedDeviceId = localStorage.getItem('selectedVideoInputDeviceId');
 			if (savedDeviceId && videoInputDevices.some((d) => d.deviceId === savedDeviceId)) {
@@ -74,46 +88,61 @@
 	};
 
 	const startCamera = async () => {
-		await getVideoInputDevices();
-
-		if (cameraStream === null) {
-			camera = true;
+		if (!callActive() || camera) return;
+		camera = true;
+		const generation = ++cameraGeneration;
+		try {
+			await getVideoInputDevices();
 			await tick();
-			try {
-				await startVideoStream();
-			} catch (err) {
-				console.error('Error accessing webcam: ', err);
+			if (!callActive() || !camera || generation !== cameraGeneration) return;
+			await startVideoStream();
+		} catch (error) {
+			if (generation === cameraGeneration) {
+				showVoiceError(error);
+				await stopCamera();
 			}
 		}
 	};
 
 	const startVideoStream = async () => {
-		const video = document.getElementById('camera-feed');
-		if (video) {
+		const video = document.getElementById('camera-feed') as HTMLVideoElement | null;
+		if (!video || !camera || !callActive()) return;
+		const generation = ++cameraGeneration;
+		let grantedStream: MediaStream | null = null;
+		try {
 			if (selectedVideoInputDeviceId === 'screen') {
-				cameraStream = await navigator.mediaDevices.getDisplayMedia({
-					video: {
-						cursor: 'always'
-					},
+				grantedStream = await navigator.mediaDevices.getDisplayMedia({
+					video: true,
 					audio: false
 				});
 			} else {
-				cameraStream = await navigator.mediaDevices.getUserMedia({
+				grantedStream = await navigator.mediaDevices.getUserMedia({
 					video: {
 						deviceId: selectedVideoInputDeviceId ? { exact: selectedVideoInputDeviceId } : undefined
 					}
 				});
 			}
 
-			if (cameraStream) {
-				await getVideoInputDevices();
-				video.srcObject = cameraStream;
-				await video.play();
+			if (!callActive() || !camera || generation !== cameraGeneration) {
+				grantedStream.getTracks().forEach((track) => track.stop());
+				return;
+			}
+			cameraStream?.getTracks().forEach((track) => track.stop());
+			cameraStream = grantedStream;
+			video.srcObject = grantedStream;
+			await video.play();
+		} catch (error) {
+			grantedStream?.getTracks().forEach((track) => track.stop());
+			if (generation === cameraGeneration) {
+				cameraStream = null;
+				camera = false;
+				showVoiceError(error);
 			}
 		}
 	};
 
 	const stopVideoStream = async () => {
+		cameraGeneration += 1;
 		if (cameraStream) {
 			const tracks = cameraStream.getTracks();
 			tracks.forEach((track) => track.stop());
@@ -139,65 +168,57 @@
 		// Draw the image from the video onto the canvas
 		context.drawImage(video, 0, 0, video.videoWidth, video.videoHeight);
 
-		// Convert the canvas to a data base64 URL and console log it
+		// Keep captured image content out of developer-console logs.
 		const dataURL = canvas.toDataURL('image/png');
-		console.log(dataURL);
 
 		return dataURL;
 	};
 
 	const stopCamera = async () => {
-		await stopVideoStream();
 		camera = false;
+		await stopVideoStream();
 	};
 
 	const MIN_DECIBELS = -55;
-	const VISUALIZER_BUFFER_LENGTH = 300;
 
-	const transcribeHandler = async (audioBlob) => {
+	const transcribeHandler = async (audioBlob: Blob, filename: string) => {
 		// Create a blob from the audio chunks
 		if (!audioBlob || audioBlob.size < 100) {
-			console.log('Audio blob too small or empty, skipping transcription');
 			return;
 		}
 
 		await tick();
-		const file = blobToFile(audioBlob, 'recording.wav');
-
-		const res = await transcribeAudio(
-			localStorage.token,
-			file,
-			$settings?.audio?.stt?.language
-		).catch((error) => {
-			toast.error(`${error}`);
-			return null;
-		});
-
-		if (res) {
-			console.log(res.text);
-
-			if (res.text !== '') {
-				const _responses = await submitPrompt(res.text, { _raw: true });
-				console.log(_responses);
+		if (!callActive()) return;
+		const file = blobToFile(audioBlob, filename);
+		try {
+			const res = await voiceRequest(
+				[callAbortController.signal],
+				(signal) =>
+					transcribeAudio(localStorage.token, file, $settings?.audio?.stt?.language, signal),
+				90_000
+			);
+			// A provider can finish after the user ends a call. Never submit late text.
+			if (callActive() && typeof res?.text === 'string' && res.text.trim()) {
+				loading = false;
+				void Promise.resolve(submitPrompt(res.text, { _raw: true })).catch(showVoiceError);
 			}
+		} catch (error) {
+			showVoiceError(error);
 		}
 	};
 
 	const stopRecordingCallback = async (_continue = true) => {
-		if ($showCallOverlay) {
-			console.log('%c%s', 'color: red; font-size: 20px;', '🚨 stopRecordingCallback 🚨');
-
+		if (callActive()) {
 			// deep copy the audioChunks array
 			const _audioChunks = audioChunks.slice(0);
+			const recorderType = mediaRecorder?.mimeType ?? '';
+			const shouldTranscribe = confirmed;
+			confirmed = false;
 
 			audioChunks = [];
-			mediaRecorder = false;
+			mediaRecorder = null;
 
-			if (_continue) {
-				startRecording();
-			}
-
-			if (confirmed) {
+			if (shouldTranscribe) {
 				loading = true;
 				emoji = null;
 
@@ -212,15 +233,14 @@
 					];
 				}
 
-				const audioBlob = new Blob(_audioChunks, { type: 'audio/wav' });
-				await transcribeHandler(audioBlob);
-
-				confirmed = false;
+				const { blob, filename } = recordingBlob(_audioChunks, recorderType);
+				await transcribeHandler(blob, filename);
 				loading = false;
 			}
+			if (_continue && callActive()) void startRecording();
 		} else {
 			audioChunks = [];
-			mediaRecorder = false;
+			mediaRecorder = null;
 
 			if (audioStream) {
 				const tracks = audioStream.getTracks();
@@ -231,47 +251,67 @@
 	};
 
 	const startRecording = async () => {
-		if ($showCallOverlay) {
-			if (!audioStream) {
-				audioStream = await navigator.mediaDevices.getUserMedia({
-					audio: {
-						echoCancellation: true,
-						noiseSuppression: true,
-						autoGainControl: true
+		if (callActive()) {
+			try {
+				if (!audioStream) {
+					const grantedStream = await navigator.mediaDevices.getUserMedia({
+						audio: {
+							echoCancellation: true,
+							noiseSuppression: true,
+							autoGainControl: true
+						}
+					});
+					if (!callActive()) {
+						grantedStream.getTracks().forEach((track) => track.stop());
+						return;
 					}
-				});
-			}
-
-			if (audioStream) {
-				// hardware track muting disabled to prevent backend translation errors with malformed WebM files
-			}
-
-			mediaRecorder = new MediaRecorder(audioStream);
-
-			mediaRecorder.onstart = () => {
-				console.log('Recording started');
-				audioChunks = [];
-			};
-
-			mediaRecorder.ondataavailable = (event) => {
-				if (hasStartedSpeaking) {
-					audioChunks.push(event.data);
+					audioStream = grantedStream;
 				}
-			};
 
-			mediaRecorder.onstop = (e) => {
-				console.log('Recording stopped', audioStream, e);
-				stopRecordingCallback();
-			};
+				const mimeType = recordingMimeType((type) => MediaRecorder.isTypeSupported(type));
+				mediaRecorder = new MediaRecorder(audioStream, mimeType ? { mimeType } : undefined);
+				const recorder = mediaRecorder;
 
-			analyseAudio(audioStream);
+				recorder.onstart = () => {
+					audioChunks = [];
+				};
+
+				recorder.ondataavailable = (event) => {
+					if (callActive() && mediaRecorder === recorder && hasStartedSpeaking) {
+						audioChunks.push(event.data);
+					}
+				};
+
+				recorder.onstop = () => {
+					if (mediaRecorder === recorder) void stopRecordingCallback();
+				};
+
+				analyseAudio(audioStream);
+			} catch (error) {
+				showVoiceError(error);
+				endCall();
+			}
 		}
 	};
 
 	const stopAudioStream = async () => {
+		const recorder = mediaRecorder;
+		mediaRecorder = null;
+		confirmed = false;
+		audioChunks = [];
+		cancelAnimationFrame(analysisFrame);
+		analysisFrame = 0;
+		audioAnalyser?.disconnect();
+		audioAnalyser = null;
+		if (audioContext) {
+			void audioContext.close().catch(() => {});
+			audioContext = null;
+		}
 		try {
-			if (mediaRecorder) {
-				mediaRecorder.stop();
+			if (recorder && recorder.state !== 'inactive') {
+				recorder.onstop = null;
+				recorder.ondataavailable = null;
+				recorder.stop();
 			}
 		} catch (error) {
 			console.log('Error stopping audio stream:', error);
@@ -296,13 +336,18 @@
 		return Math.sqrt(sumSquares / data.length);
 	};
 
-	const analyseAudio = (stream) => {
-		const audioContext = new AudioContext();
-		const audioStreamSource = audioContext.createMediaStreamSource(stream);
-
-		const analyser = audioContext.createAnalyser();
+	const analyseAudio = (stream: MediaStream) => {
+		cancelAnimationFrame(analysisFrame);
+		if (!audioContext) {
+			audioContext = new AudioContext();
+			audioAnalyser = audioContext.createAnalyser();
+			audioContext.createMediaStreamSource(stream).connect(audioAnalyser);
+		}
+		void audioContext.resume().catch(showVoiceError);
+		const analyser = audioAnalyser;
+		if (!analyser) return;
 		analyser.minDecibels = MIN_DECIBELS;
-		audioStreamSource.connect(analyser);
+		const recorder = mediaRecorder;
 
 		const bufferLength = analyser.frequencyBinCount;
 
@@ -310,13 +355,12 @@
 		const timeDomainData = new Uint8Array(analyser.fftSize);
 
 		let lastSoundTime = Date.now();
+		let speechStartedAt = 0;
 		hasStartedSpeaking = false;
-
-		console.log('🔊 Sound detection started', lastSoundTime, hasStartedSpeaking);
 
 		const detectSound = () => {
 			const processFrame = () => {
-				if (!mediaRecorder || !$showCallOverlay) {
+				if (!mediaRecorder || mediaRecorder !== recorder || !callActive()) {
 					return;
 				}
 
@@ -340,16 +384,19 @@
 				}
 
 				// Check if initial speech/noise has started
-				const hasSound = domainData.some((value) => value > 0);
+				const hasSound =
+					!muted &&
+					!loading &&
+					(!assistantSpeaking || ($settings?.voiceInterruption ?? false)) &&
+					domainData.some((value) => value > 0);
 				if (hasSound) {
-					// BIG RED TEXT
-					console.log('%c%s', 'color: red; font-size: 20px;', '🔊 Sound detected');
 					if (mediaRecorder && mediaRecorder.state !== 'recording') {
 						mediaRecorder.start();
 					}
 
 					if (!hasStartedSpeaking) {
 						hasStartedSpeaking = true;
+						speechStartedAt = Date.now();
 						stopAllAudio();
 					}
 
@@ -358,28 +405,27 @@
 
 				// Start silence detection only after initial speech/noise has been detected
 				if (hasStartedSpeaking) {
-					if (Date.now() - lastSoundTime > 2000) {
+					if (Date.now() - lastSoundTime > 2000 || Date.now() - speechStartedAt > 60_000) {
 						confirmed = true;
 
 						if (mediaRecorder) {
-							console.log('%c%s', 'color: red; font-size: 20px;', '🔇 Silence detected');
 							mediaRecorder.stop();
 							return;
 						}
 					}
 				}
 
-				window.requestAnimationFrame(processFrame);
+				analysisFrame = window.requestAnimationFrame(processFrame);
 			};
 
-			window.requestAnimationFrame(processFrame);
+			analysisFrame = window.requestAnimationFrame(processFrame);
 		};
 
 		detectSound();
 	};
 
-	let finishedMessages = {};
-	let currentMessageId = null;
+	let finishedMessages: Record<string, boolean> = {};
+	let currentMessageId: string | null = null;
 	let currentUtterance: SpeechSynthesisUtterance | null = null;
 
 	// Get voice: model-specific > user settings > config default
@@ -395,272 +441,237 @@
 		return $config?.audio?.tts?.voice;
 	};
 
-	const speakSpeechSynthesisHandler = (content) => {
-		if ($showCallOverlay) {
-			return new Promise((resolve) => {
-				let voices = [];
-				const getVoicesLoop = setInterval(async () => {
-					voices = await speechSynthesis.getVoices();
-					if (voices.length > 0) {
-						clearInterval(getVoicesLoop);
+	let audioAbortController = new AbortController();
+	const audioCache = new Map<string, HTMLAudioElement | true | null>();
+	const pendingAudio = new Map<string, Promise<HTMLAudioElement | true | null>>();
+	const emojiCache = new Map();
+	let messages: Record<string, string[]> = {};
+	let finishPlayback: (() => void) | null = null;
 
-						const voiceId = getVoiceId();
-						const voice = voices?.filter((v) => v.voiceURI === voiceId)?.at(0) ?? undefined;
-
-						currentUtterance = new SpeechSynthesisUtterance(content);
-						currentUtterance.rate = $settings.audio?.tts?.playbackRate ?? 1;
-
-						if (voice) {
-							currentUtterance.voice = voice;
-						}
-
-						speechSynthesis.speak(currentUtterance);
-						currentUtterance.onend = async (e) => {
-							await new Promise((r) => setTimeout(r, 200));
-							resolve(e);
-						};
-					}
-				}, 100);
-			});
-		} else {
-			return Promise.resolve();
+	const clearAudioCache = () => {
+		for (const audio of audioCache.values()) {
+			if (audio && audio !== true && audio.src.startsWith('blob:')) URL.revokeObjectURL(audio.src);
 		}
+		audioCache.clear();
+		pendingAudio.clear();
+		emojiCache.clear();
 	};
 
-	const playAudio = (audio: HTMLAudioElement) => {
-		if ($showCallOverlay) {
-			return new Promise((resolve) => {
-				const audioElement = document.getElementById('audioElement') as HTMLAudioElement;
-
-				if (!audioElement) {
-					resolve(null);
-					return;
-				}
-
-				let settled = false;
-				const finish = async (e: Event | Error | null = null) => {
-					if (settled) {
-						return;
-					}
-
-					settled = true;
-					audioElement.onended = null;
-					audioElement.onerror = null;
-					audioElement.onpause = null;
-
-					await new Promise((r) => setTimeout(r, 100));
-					resolve(e);
-				};
-
-				audioElement.src = audio.src;
-				audioElement.muted = true;
-				audioElement.playbackRate = $settings.audio?.tts?.playbackRate ?? 1;
-				audioElement.onended = finish;
-				audioElement.onerror = () => finish();
-				audioElement.onpause = finish;
-
-				audioElement
-					.play()
-					.then(() => {
-						audioElement.muted = false;
-					})
-					.catch((error) => {
-						console.error(error);
-						finish(error);
-					});
-			});
-		} else {
-			return Promise.resolve();
-		}
-	};
-
-	const stopAllAudio = async () => {
+	const stopAllAudio = (stopGeneration = true) => {
+		audioAbortController.abort();
 		assistantSpeaking = false;
 		interrupted = true;
-
-		if (chatStreaming) {
-			stopResponse();
+		if (stopGeneration && chatStreaming) {
+			void Promise.resolve(stopResponse()).catch(showVoiceError);
+			chatStreaming = false;
 		}
-
 		if (currentUtterance) {
 			speechSynthesis.cancel();
 			currentUtterance = null;
 		}
-
-		const audioElement = document.getElementById('audioElement') as HTMLAudioElement;
-		if (audioElement) {
-			audioElement.muted = true;
-			audioElement.pause();
-			audioElement.currentTime = 0;
+		finishPlayback?.();
+		finishPlayback = null;
+		const element = document.getElementById('audioElement') as HTMLAudioElement;
+		if (element) {
+			element.muted = true;
+			element.pause();
+			element.removeAttribute('src');
+			element.load();
 		}
+		currentMessageId = null;
+		messages = {};
+		finishedMessages = {};
+		clearAudioCache();
 	};
 
-	let audioAbortController = new AbortController();
-
-	// Audio cache map where key is the content and value is the Audio object.
-	const audioCache = new Map();
-	const emojiCache = new Map();
-
-	const fetchAudio = async (content) => {
-		if (!audioCache.has(content)) {
-			try {
-				// Set the emoji for the content if needed
-				if ($settings?.showEmojiInCall ?? false) {
-					const emoji = await generateEmoji(localStorage.token, modelId, content, chatId).catch(
-						(error) => {
-							console.error(error);
-							return null;
-						}
-					);
-					if (emoji) {
-						emojiCache.set(content, emoji);
-					}
+	const playAudio = (audio: HTMLAudioElement | true, content: string, signal: AbortSignal) => {
+		if (!callActive() || signal.aborted) return Promise.resolve();
+		return new Promise<void>((resolve, reject) => {
+			let settled = false;
+			const element = document.getElementById('audioElement') as HTMLAudioElement;
+			let utterance: SpeechSynthesisUtterance | null = null;
+			const finish = (error?: unknown) => {
+				if (settled) return;
+				settled = true;
+				clearTimeout(timer);
+				signal.removeEventListener('abort', cancel);
+				if (element) {
+					element.onended = null;
+					element.onerror = null;
+					element.onpause = null;
 				}
-
-				if ($settings.audio?.tts?.engine === 'browser-kokoro') {
-					const url = await $TTSWorker
-						.generate({
-							text: content,
-							voice: getVoiceId()
+				if (utterance) {
+					utterance.onend = null;
+					utterance.onerror = null;
+				}
+				if (currentUtterance === utterance) currentUtterance = null;
+				finishPlayback = null;
+				if (error) reject(error);
+				else resolve();
+			};
+			const cancel = () => {
+				// A late play() resolution from an old reply must not pause the next reply.
+				if (settled) return;
+				if (utterance) speechSynthesis.cancel();
+				else element?.pause();
+				finish();
+			};
+			const timer = setTimeout(() => {
+				finish(new Error($i18n.t('Speech playback timed out')));
+				if (utterance) speechSynthesis.cancel();
+				else element?.pause();
+			}, 120_000);
+			finishPlayback = () => finish();
+			signal.addEventListener('abort', cancel, { once: true });
+			try {
+				if (audio === true) {
+					utterance = new SpeechSynthesisUtterance(content);
+					currentUtterance = utterance;
+					utterance.rate = $settings.audio?.tts?.playbackRate ?? 1;
+					const voice = speechSynthesis
+						.getVoices()
+						.find((voice) => voice.voiceURI === getVoiceId());
+					if (voice) utterance.voice = voice;
+					utterance.onend = () => finish();
+					utterance.onerror = () => finish(new Error($i18n.t('Speech playback failed')));
+					// Empty getVoices() is allowed: use the browser default instead of polling forever.
+					speechSynthesis.speak(utterance);
+				} else if (element) {
+					element.src = audio.src;
+					element.muted = false;
+					element.playbackRate = $settings.audio?.tts?.playbackRate ?? 1;
+					element.onended = () => finish();
+					element.onerror = () => finish(new Error($i18n.t('Speech playback failed')));
+					element.onpause = () => finish();
+					void element
+						.play()
+						.then(() => {
+							if (!callActive() || signal.aborted) cancel();
 						})
-						.catch((error) => {
-							console.error(error);
-							toast.error(`${error}`);
-						});
+						.catch((error) => finish(error));
+				} else finish(new Error($i18n.t('Speech playback failed')));
+			} catch (error) {
+				finish(error);
+			}
+		});
+	};
 
-					if (url) {
-						audioCache.set(content, new Audio(url));
-					}
-				} else if ($config.audio.tts.engine !== '') {
-					const res = await synthesizeOpenAISpeech(localStorage.token, getVoiceId(), content).catch(
-						(error) => {
-							console.error(error);
-							return null;
+	const fetchAudio = async (content: string, signal: AbortSignal) => {
+		if (!callActive() || signal.aborted) return null;
+		if (audioCache.has(content)) return audioCache.get(content);
+		if (pendingAudio.has(content)) return pendingAudio.get(content);
+		const pending = (async () => {
+			try {
+				if ($settings?.showEmojiInCall ?? false) {
+					// Decoration must not delay speech synthesis.
+					void generateEmoji(localStorage.token, modelId, content, chatId)
+						.then((emoji) => {
+							if (emoji && callActive() && !signal.aborted) emojiCache.set(content, emoji);
+						})
+						.catch(() => {});
+				}
+				if ($settings.audio?.tts?.engine === 'browser-kokoro') {
+					const url = await voiceRequest(
+						[callAbortController.signal, signal],
+						async (requestSignal) => {
+							const generated = await $TTSWorker.generate({ text: content, voice: getVoiceId() });
+							if (requestSignal.aborted || !callActive()) {
+								if (generated) URL.revokeObjectURL(generated);
+								throw new DOMException('Voice request cancelled', 'AbortError');
+							}
+							return generated;
 						}
 					);
-
-					if (res) {
-						const blob = await res.blob();
-						const blobUrl = URL.createObjectURL(blob);
-						audioCache.set(content, new Audio(blobUrl));
-					}
-				} else {
-					audioCache.set(content, true);
-				}
-			} catch (error) {
-				console.error('Error synthesizing speech:', error);
-			}
-		}
-
-		return audioCache.get(content);
-	};
-
-	let messages = {};
-
-	const monitorAndPlayAudio = async (id, signal) => {
-		while (!signal.aborted) {
-			if (messages[id] && messages[id].length > 0) {
-				// Retrieve the next content string from the queue
-				const content = messages[id].shift(); // Dequeues the content for playing
-
-				if (audioCache.has(content)) {
-					// If content is available in the cache, play it
-
-					// Set the emoji for the content if available
-					if (($settings?.showEmojiInCall ?? false) && emojiCache.has(content)) {
-						emoji = emojiCache.get(content);
-					} else {
-						emoji = null;
-					}
-
-					if ($config.audio.tts.engine !== '') {
-						try {
-							console.log(
-								'%c%s',
-								'color: red; font-size: 20px;',
-								`Playing audio for content: ${content}`
+					if (url && callActive() && !signal.aborted) audioCache.set(content, new Audio(url));
+					else if (url) URL.revokeObjectURL(url);
+				} else if ($config.audio.tts.engine !== '') {
+					const blob = await voiceRequest(
+						[callAbortController.signal, signal],
+						async (requestSignal) => {
+							const response = await synthesizeOpenAISpeech(
+								localStorage.token,
+								getVoiceId(),
+								content,
+								undefined,
+								requestSignal
 							);
-
-							const audio = audioCache.get(content);
-							await playAudio(audio); // Here ensure that playAudio is indeed correct method to execute
-							console.log(`Played audio for content: ${content}`);
-							await new Promise((resolve) => setTimeout(resolve, 200)); // Wait before retrying to reduce tight loop
-						} catch (error) {
-							console.error('Error playing audio:', error);
+							if (!response) throw new Error($i18n.t('Speech playback failed'));
+							return response.blob();
 						}
-					} else {
-						await speakSpeechSynthesisHandler(content);
-					}
-				} else {
-					// If not available in the cache, push it back to the queue and delay
-					messages[id].unshift(content); // Re-queue the content at the start
-					console.log(`Audio for "${content}" not yet available in the cache, re-queued...`);
-					await new Promise((resolve) => setTimeout(resolve, 200)); // Wait before retrying to reduce tight loop
-				}
-			} else if (finishedMessages[id] && messages[id] && messages[id].length === 0) {
-				// If the message is finished and there are no more messages to process, break the loop
-				assistantSpeaking = false;
-				break;
-			} else {
-				// No messages to process, sleep for a bit
-				await new Promise((resolve) => setTimeout(resolve, 200));
-			}
-		}
-		console.log(`Audio monitoring and playing stopped for message ID ${id}`);
-	};
-
-	const chatStartHandler = async (e) => {
-		const { id } = e.detail;
-
-		chatStreaming = true;
-
-		if (currentMessageId !== id) {
-			console.log(`Received chat start event for message ID ${id}`);
-
-			currentMessageId = id;
-			if (audioAbortController) {
-				audioAbortController.abort();
-			}
-			audioAbortController = new AbortController();
-
-			assistantSpeaking = true;
-			// Start monitoring and playing audio for the message ID
-			monitorAndPlayAudio(id, audioAbortController.signal);
-		}
-	};
-
-	const chatEventHandler = async (e) => {
-		const { id, content } = e.detail;
-		// "id" here is message id
-		// if "id" is not the same as "currentMessageId" then do not process
-		// "content" here is a sentence from the assistant,
-		// there will be many sentences for the same "id"
-
-		if (currentMessageId === id) {
-			console.log(`Received chat event for message ID ${id}: ${content}`);
-
-			try {
-				if (messages[id] === undefined) {
-					messages[id] = [content];
-				} else {
-					messages[id].push(content);
-				}
-
-				console.log(content);
-
-				fetchAudio(content);
+					);
+					if (callActive() && !signal.aborted)
+						audioCache.set(content, new Audio(URL.createObjectURL(blob)));
+				} else audioCache.set(content, true);
 			} catch (error) {
-				console.error('Failed to fetch or play audio:', error);
+				showVoiceError(error);
+				if (callActive() && !signal.aborted) audioCache.set(content, null);
 			}
+			return audioCache.get(content) ?? null;
+		})();
+		pendingAudio.set(content, pending);
+		try {
+			return await pending;
+		} finally {
+			if (pendingAudio.get(content) === pending) pendingAudio.delete(content);
 		}
 	};
 
-	const chatFinishHandler = async (e) => {
-		const { id, content } = e.detail;
-		// "content" here is the entire message from the assistant
-		finishedMessages[id] = true;
+	const monitorAndPlayAudio = async (id: string, signal: AbortSignal) => {
+		try {
+			while (callActive() && !signal.aborted && currentMessageId === id) {
+				if (messages[id]?.length) {
+					const content = messages[id].shift();
+					if (content === undefined) continue;
+					const audio = await fetchAudio(content, signal);
+					if (!callActive() || signal.aborted || currentMessageId !== id) break;
+					emoji = emojiCache.get(content) ?? null;
+					// At most one look-ahead synthesis; never fan out every streamed sentence.
+					if (messages[id]?.length) void fetchAudio(messages[id][0], signal);
+					if (audio) {
+						try {
+							await playAudio(audio, content, signal);
+						} catch (error) {
+							showVoiceError(error);
+						}
+						if (audio !== true && audio.src.startsWith('blob:')) URL.revokeObjectURL(audio.src);
+					}
+					// A failed segment is skipped after a visible error, not requeued forever.
+					audioCache.delete(content);
+				} else if (finishedMessages[id]) break;
+				else await new Promise((resolve) => setTimeout(resolve, 100));
+			}
+		} finally {
+			if (currentMessageId === id) assistantSpeaking = false;
+		}
+	};
 
-		chatStreaming = false;
+	const chatStartHandler = (event: Event) => {
+		if (!callActive()) return;
+		const { id } = (event as CustomEvent<{ id: string }>).detail;
+		if (currentMessageId !== id) {
+			stopAllAudio(false);
+			currentMessageId = id;
+			audioAbortController = new AbortController();
+			assistantSpeaking = true;
+			void monitorAndPlayAudio(id, audioAbortController.signal).catch(showVoiceError);
+		}
+		chatStreaming = true;
+	};
+
+	const chatEventHandler = (event: Event) => {
+		const { id, content } = (event as CustomEvent<{ id: string; content: string }>).detail;
+		if (callActive() && currentMessageId === id && typeof content === 'string' && content.trim()) {
+			messages[id] ??= [];
+			messages[id].push(content);
+		}
+	};
+
+	const chatFinishHandler = (event: Event) => {
+		const { id } = (event as CustomEvent<{ id: string }>).detail;
+		if (callActive() && currentMessageId === id) {
+			finishedMessages[id] = true;
+			chatStreaming = false;
+		}
 	};
 
 	const toggleMute = () => {
@@ -676,18 +687,7 @@
 		}
 	};
 
-	let wasAssistantSpeaking = false;
-	$: {
-		if (assistantSpeaking && !wasAssistantSpeaking) {
-			wasAssistantSpeaking = true;
-		} else if (!assistantSpeaking && wasAssistantSpeaking) {
-			wasAssistantSpeaking = false;
-			// Auto unmute when AI finishes speaking
-			if (muted) {
-				muted = false;
-			}
-		}
-	}
+	// Only the user toggles microphone mute; a completed AI reply must not undo it.
 
 	const handleKeydown = (e: KeyboardEvent) => {
 		// Only handle M key when not typing in an input/textarea
@@ -704,84 +704,58 @@
 		}
 	};
 
-	onMount(async () => {
-		const setWakeLock = async () => {
-			try {
-				wakeLock = await navigator.wakeLock.request('screen');
-			} catch (err) {
-				// The Wake Lock request has failed - usually system related, such as battery.
-				console.log(err);
-			}
-
-			if (wakeLock) {
-				// Add a listener to release the wake lock when the page is unloaded
-				wakeLock.addEventListener('release', () => {
-					// the wake lock has been released
-					console.log('Wake Lock released');
-				});
-			}
-		};
-
-		if ('wakeLock' in navigator) {
-			await setWakeLock();
-
-			document.addEventListener('visibilitychange', async () => {
-				// Re-request the wake lock if the document becomes visible
-				if (wakeLock !== null && document.visibilityState === 'visible') {
-					await setWakeLock();
-				}
-			});
+	const requestWakeLock = async () => {
+		if (!callActive() || !('wakeLock' in navigator)) return;
+		try {
+			const lock = await navigator.wakeLock.request('screen');
+			if (!callActive()) await lock.release();
+			else wakeLock = lock;
+		} catch {
+			// A wake lock is optional (battery saver/background tabs can deny it).
 		}
+	};
+	const visibilityHandler = () => {
+		// Mobile browsers pause animation frames in background tabs. Discard any
+		// partial recording instead of relying on the foreground silence timer.
+		if (document.visibilityState === 'hidden' && callActive() && !muted) toggleMute();
+		if (document.visibilityState === 'visible' && callActive()) void requestWakeLock();
+	};
 
-		model = $models.find((m) => m.id === modelId);
-
-		startRecording();
-
-		eventTarget.addEventListener('chat:start', chatStartHandler);
-		eventTarget.addEventListener('chat', chatEventHandler);
-		eventTarget.addEventListener('chat:finish', chatFinishHandler);
-
-		document.addEventListener('keydown', handleKeydown);
-
-		return async () => {
-			await stopAllAudio();
-
-			stopAudioStream();
-
-			eventTarget.removeEventListener('chat:start', chatStartHandler);
-			eventTarget.removeEventListener('chat', chatEventHandler);
-			eventTarget.removeEventListener('chat:finish', chatFinishHandler);
-
-			document.removeEventListener('keydown', handleKeydown);
-
-			audioAbortController.abort();
-			await tick();
-
-			await stopAllAudio();
-
-			await stopRecordingCallback(false);
-			await stopCamera();
-		};
-	});
-
-	onDestroy(async () => {
-		await stopAllAudio();
-		await stopRecordingCallback(false);
-		await stopCamera();
-
-		await stopAudioStream();
+	const disposeCall = () => {
+		if (closed) return;
+		closed = true;
+		callAbortController.abort();
+		stopAllAudio();
+		void stopAudioStream();
+		void stopCamera();
+		if (wakeLock) {
+			void wakeLock.release().catch(() => {});
+			wakeLock = null;
+		}
 		eventTarget.removeEventListener('chat:start', chatStartHandler);
 		eventTarget.removeEventListener('chat', chatEventHandler);
 		eventTarget.removeEventListener('chat:finish', chatFinishHandler);
-
 		document.removeEventListener('keydown', handleKeydown);
+		document.removeEventListener('visibilitychange', visibilityHandler);
+	};
+	const endCall = () => {
+		disposeCall();
+		showCallOverlay.set(false);
+		dispatch('close');
+	};
 
-		audioAbortController.abort();
-
-		await tick();
-
-		await stopAllAudio();
+	onMount(() => {
+		model = $models.find((candidate) => candidate.id === modelId);
+		eventTarget.addEventListener('chat:start', chatStartHandler);
+		eventTarget.addEventListener('chat', chatEventHandler);
+		eventTarget.addEventListener('chat:finish', chatFinishHandler);
+		document.addEventListener('keydown', handleKeydown);
+		document.addEventListener('visibilitychange', visibilityHandler);
+		void requestWakeLock();
+		void startRecording();
+		return disposeCall;
 	});
+	onDestroy(disposeCall);
 </script>
 
 {#if $showCallOverlay}
@@ -1000,7 +974,6 @@
 					<VideoInputMenu
 						devices={videoInputDevices}
 						on:change={async (e) => {
-							console.log(e.detail);
 							selectedVideoInputDeviceId = e.detail;
 							localStorage.setItem('selectedVideoInputDeviceId', e.detail);
 							await stopVideoStream();
@@ -1032,9 +1005,8 @@
 							aria-label={$i18n.t('Camera')}
 							class="p-3 rounded-full bg-gray-50 dark:bg-gray-900"
 							type="button"
-							on:click={async () => {
-								await navigator.mediaDevices.getUserMedia({ video: true });
-								startCamera();
+							on:click={() => {
+								void startCamera();
 							}}
 						>
 							<svg
@@ -1117,16 +1089,7 @@
 				<button
 					aria-label={$i18n.t('End call')}
 					class="p-3 rounded-full bg-gray-50 dark:bg-gray-900"
-					on:click={async () => {
-						await stopAudioStream();
-						await stopVideoStream();
-
-						console.log(audioStream);
-						console.log(cameraStream);
-
-						showCallOverlay.set(false);
-						dispatch('close');
-					}}
+					on:click={endCall}
 					type="button"
 				>
 					<svg

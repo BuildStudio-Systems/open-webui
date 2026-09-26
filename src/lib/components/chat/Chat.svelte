@@ -3674,6 +3674,8 @@
 			};
 
 			responseMessage.done = true;
+			// Release the voice listener when HTTP submission fails before socket completion.
+			eventTarget.dispatchEvent(new CustomEvent('chat:finish', { detail: { id: responseMessageId } }));
 
 			history.messages[responseMessageId] = responseMessage;
 			history.currentId = responseMessageId;
@@ -3733,11 +3735,7 @@
 
 	const handleOpenAIError = async (error, responseMessage) => {
 		let errorMessage = '';
-		let innerError;
-
-		if (error) {
-			innerError = error;
-		}
+		const innerError = error && typeof error === 'object' ? error : { message: String(error ?? '') };
 
 		console.error(innerError);
 		if ('detail' in innerError) {
@@ -3746,7 +3744,7 @@
 			errorMessage = innerError.detail;
 		} else if ('error' in innerError) {
 			// OpenAI error
-			if ('message' in innerError.error) {
+			if (innerError.error && typeof innerError.error === 'object' && 'message' in innerError.error) {
 				toast.error(innerError.error.message);
 				errorMessage = innerError.error.message;
 			} else {
@@ -3763,6 +3761,8 @@
 			content: $i18n.t(`Uh-oh! There was an issue with the response.`) + '\n' + errorMessage
 		};
 		responseMessage.done = true;
+		// Error events do not necessarily include a later `done` socket event.
+		eventTarget.dispatchEvent(new CustomEvent('chat:finish', { detail: { id: responseMessage.id } }));
 
 		if (responseMessage.statusHistory) {
 			responseMessage.statusHistory = responseMessage.statusHistory.filter(

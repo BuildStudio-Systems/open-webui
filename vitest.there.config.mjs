@@ -5,6 +5,9 @@ export default {
 	test: {
 		environment: 'node',
 		include: [
+			'src/lib/apis/audio/*.test.ts',
+			'src/lib/utils/voice-session.test.ts',
+			'src/lib/utils/voice-chat-events.test.ts',
 			'src/lib/apis/there/*.test.ts',
 			'src/lib/constants/permissions.test.ts',
 			'src/lib/utils/attachment-download.test.ts',

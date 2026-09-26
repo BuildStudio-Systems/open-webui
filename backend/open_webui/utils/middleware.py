@@ -131,6 +131,11 @@ from open_webui.utils.task import (
     rag_template,
     tools_function_calling_generation_template,
 )
+from open_webui.utils.there_conversation_language import (
+    infer_reply_language,
+    with_rag_reply_language,
+    with_rag_reply_language_code,
+)
 from open_webui.utils.tools import (
     build_tool_server_headers,
     get_attached_knowledge,
@@ -1045,17 +1050,18 @@ async def apply_source_context_to_messages(
         return messages
 
     if RAG_SYSTEM_CONTEXT:
-        return add_or_update_system_message(
+        result = add_or_update_system_message(
             await rag_template(await Config.get('rag.template'), context, user_message),
             messages,
             append=True,
         )
     else:
-        return add_or_update_user_message(
+        result = add_or_update_user_message(
             await rag_template(await Config.get('rag.template'), context, user_message),
             messages,
             append=False,
         )
+    return with_rag_reply_language(result, user_message)
 
 
 async def process_tool_result(
@@ -2857,6 +2863,9 @@ async def process_chat_payload(request, form_data, user, metadata, model):
     strip_skill_mentions(form_data.get('messages', []))
 
     prompt = get_last_user_message(form_data['messages'])
+    # Server-derived enum, captured before file/RAG enrichment. Never select a
+    # reply language from retrieved text, file names or client language fields.
+    metadata['there_reply_language'] = infer_reply_language(prompt)
 
     # Guard against empty user message after skill mention stripping.
     # When a user selects a skill ($skill-name) without typing additional text,
@@ -5952,6 +5961,9 @@ async def streaming_chat_response_handler(response, ctx):
                                         form_data['messages'],
                                         append=False,
                                     )
+                                form_data['messages'] = with_rag_reply_language_code(
+                                    form_data['messages'], metadata.get('there_reply_language')
+                                )
                         tool_call_sources.clear()
 
                     # Strip input_image parts (large base64 data URIs) from the

@@ -7,6 +7,7 @@ export default {
 		include: [
 			'src/lib/apis/audio/*.test.ts',
 			'src/lib/utils/voice-session.test.ts',
+			'src/lib/utils/voice-stream.test.ts',
 			'src/lib/utils/voice-chat-events.test.ts',
 			'src/lib/utils/voice-entry.test.ts',
 			'src/lib/apis/there/*.test.ts',

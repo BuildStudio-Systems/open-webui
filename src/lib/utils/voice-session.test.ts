@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import ts from 'typescript';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { isVoiceAbort, recordingBlob, recordingMimeType, voiceRequest } from './voice-session';
+import { CALL_SILENCE_MS, callSpeechParts, speechLanguage } from './voice-stream';
 
 const deferred = <T>() => {
 	let resolve!: (value: T) => void;
@@ -104,7 +105,7 @@ const instantiate = new Function(
 	`
 const {getContext,createEventDispatcher,tick,onMount,onDestroy,toast,blobToFile,
 transcribeAudio,synthesizeOpenAISpeech,generateEmoji,isVoiceAbort,recordingBlob,
-recordingMimeType,voiceRequest,$models,$settings,$config,$TTSWorker,$i18n}=deps;
+recordingMimeType,voiceRequest,CALL_SILENCE_MS,speechLanguage,$models,$settings,$config,$TTSWorker,$i18n}=deps;
 let $showCallOverlay=true;
 const showCallOverlay={set(value){$showCallOverlay=value;}};
 ${compiled}
@@ -211,6 +212,8 @@ function overlay(overrides: Record<string, unknown> = {}) {
 		recordingBlob,
 		recordingMimeType,
 		voiceRequest,
+		CALL_SILENCE_MS,
+		speechLanguage,
 		$models: [],
 		$settings: { audio: { tts: {} } },
 		$config: { audio: { tts: { engine: 'openai', voice: 'there-auto' } } },
@@ -227,6 +230,82 @@ function overlay(overrides: Record<string, unknown> = {}) {
 }
 
 describe('real CallOverlay script with synthetic browser/audio', () => {
+	it.each([
+		'你好。后续仍在生成',
+		'こんにちは。説明はまだ続きます',
+		'Hello. More text is streaming'
+	])('starts TTS on the ready sentence before chat finish: %s', async (content) => {
+		vi.useFakeTimers();
+		const { api, deps } = overlay();
+		api.chatStartHandler({ detail: { id: 'streaming' } });
+		const parts = callSpeechParts(content, 'punctuation', false, (text) => text.trim());
+		for (const part of parts) api.chatEventHandler({ detail: { id: 'streaming', content: part } });
+		await vi.advanceTimersByTimeAsync(100);
+		expect(deps.synthesizeOpenAISpeech).toHaveBeenCalledTimes(1);
+		expect(deps.synthesizeOpenAISpeech.mock.calls[0][2]).toBe(parts[0]);
+		expect(api.state().assistantSpeaking).toBe(true);
+		api.endCall();
+	});
+	it.each([
+		['你好。', 'zh-CN', undefined],
+		['こんにちは。', 'ja-JP', undefined],
+		['Hello.', 'en-US', undefined],
+		['你好。', 'ja-JP', 'explicit-ja']
+	])(
+		'selects browser speech from text while respecting explicit voices (%s, %s)',
+		async (content, language, voiceId) => {
+			vi.useFakeTimers();
+			const voices = [
+				{ voiceURI: 'auto-en', lang: 'en-US' },
+				{ voiceURI: 'auto-zh', lang: 'zh-CN' },
+				{ voiceURI: 'explicit-ja', lang: 'ja-JP' }
+			];
+			vi.stubGlobal(
+				'SpeechSynthesisUtterance',
+				class {
+					constructor(public text: string) {}
+				}
+			);
+			const speak = vi.fn((utterance) => queueMicrotask(() => utterance.onend?.()));
+			vi.stubGlobal('speechSynthesis', { getVoices: () => voices, speak, cancel: vi.fn() });
+			const { api } = overlay({
+				$config: { audio: { tts: { engine: '', voice: 'there-auto' } } },
+				$settings: {
+					ui: { language: 'en-US' },
+					audio: { tts: { voice: voiceId, defaultVoice: 'there-auto' } }
+				}
+			});
+			api.chatStartHandler({ detail: { id: 'browser' } });
+			api.chatEventHandler({ detail: { id: 'browser', content } });
+			api.chatFinishHandler({ detail: { id: 'browser' } });
+			await vi.advanceTimersByTimeAsync(100);
+			expect(speak).toHaveBeenCalledTimes(1);
+			expect(speak.mock.calls[0][0].lang).toBe(language);
+			expect(speak.mock.calls[0][0].voice.lang).toBe(language);
+			api.endCall();
+		}
+	);
+	it('auto-detects each spoken language without changing dictation/UI settings', async () => {
+		const questions = [
+			'你好，我想了解泽亚。',
+			'Please introduce There.',
+			'日本語で説明してください。'
+		];
+		const transcribeAudio = vi.fn();
+		for (const text of questions) transcribeAudio.mockResolvedValueOnce({ text });
+		const { api, deps } = overlay({
+			transcribeAudio,
+			$settings: { ui: { language: 'ja-JP' }, audio: { stt: { language: 'zh' }, tts: {} } }
+		});
+		for (const text of questions) {
+			await api.transcribeHandler(new Blob(['x'.repeat(200)]), 'recording.webm');
+			expect(deps.submitPrompt).toHaveBeenLastCalledWith(text, { _raw: true });
+		}
+		expect(transcribeAudio.mock.calls.every((call) => call[2] === undefined)).toBe(true);
+		expect(deps.$settings.audio.stt.language).toBe('zh');
+		expect(deps.$settings.ui.language).toBe('ja-JP');
+		api.endCall();
+	});
 	it('submits transcription to the existing Agent chat without changing selected model', async () => {
 		const { api, deps } = overlay();
 		await api.transcribeHandler(
@@ -329,8 +408,12 @@ describe('real CallOverlay script with synthetic browser/audio', () => {
 		await api.startRecording();
 		vi.mocked(requestAnimationFrame).mock.calls.at(-1)![0](0);
 		analyser.getByteFrequencyData.mockImplementation((data: Uint8Array) => data.fill(0));
-		await vi.advanceTimersByTimeAsync(2100);
-		vi.mocked(requestAnimationFrame).mock.calls.at(-1)![0](2100);
+		await vi.advanceTimersByTimeAsync(900);
+		vi.mocked(requestAnimationFrame).mock.calls.at(-1)![0](900);
+		expect(deps.transcribeAudio).not.toHaveBeenCalled();
+		expect(api.state().mediaRecorder.state).toBe('recording');
+		await vi.advanceTimersByTimeAsync(301);
+		vi.mocked(requestAnimationFrame).mock.calls.at(-1)![0](1201);
 		await vi.advanceTimersByTimeAsync(1);
 		expect(deps.transcribeAudio).toHaveBeenCalledTimes(1);
 		expect(deps.transcribeAudio.mock.calls[0][1]).toMatchObject({

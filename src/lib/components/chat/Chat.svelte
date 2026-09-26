@@ -54,7 +54,8 @@
 	import {
 		convertMessagesToHistory,
 		copyToClipboard,
-		getMessageContentParts,
+		removeFormattings,
+		removeEmojis,
 		createMessagesList,
 		sanitizeHistory,
 		getPromptVariables,
@@ -65,6 +66,7 @@
 		getUsageTokenCount
 	} from '$lib/utils';
 	import { AudioQueue } from '$lib/utils/audio';
+	import { callSpeechParts } from '$lib/utils/voice-stream';
 	import { hasPendingAssistantResponse } from '$lib/utils/response-tasks';
 	import { canUseWebSearch, DEFAULT_WEB_SEARCH_ENABLED } from '$lib/utils/web-search-policy';
 	import { createTemporaryChatId, isTemporaryChatId } from '$lib/utils/chatId';
@@ -1921,25 +1923,16 @@
 		}
 
 		const ttsSplitOn = $config?.audio?.tts?.split_on ?? 'punctuation';
-		const messageContentParts = getMessageContentParts(
-			getOutputText(message?.output) || removeAllDetails(message?.content ?? ''),
-			ttsSplitOn
+		const messageContentParts = callSpeechParts(
+			getOutputText(message?.output) || (message?.content ?? ''),
+			ttsSplitOn,
+			final,
+			// Keep trailing whitespace until Markdown list markers have been removed.
+			(content) => removeFormattings(removeEmojis(content))
 		);
 
 		const sentContentPartCount = message.ttsSentContentPartCount ?? 0;
-		const nextContentParts = (final ? messageContentParts : messageContentParts.slice(0, -1)).slice(
-			sentContentPartCount
-		);
-		const pendingContentPartIndex = nextContentParts.findIndex(
-			(content) =>
-				!final &&
-				ttsSplitOn === 'punctuation' &&
-				(content.split(/\s+/).length < 4 || content.length < 50)
-		);
-		const dispatchContentParts =
-			pendingContentPartIndex === -1
-				? nextContentParts
-				: nextContentParts.slice(0, pendingContentPartIndex);
+		const dispatchContentParts = messageContentParts.slice(sentContentPartCount);
 
 		dispatchContentParts.forEach((content) => {
 			eventTarget.dispatchEvent(

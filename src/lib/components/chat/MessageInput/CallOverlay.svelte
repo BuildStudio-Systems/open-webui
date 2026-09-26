@@ -13,6 +13,7 @@
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
 	import VideoInputMenu from './CallOverlay/VideoInputMenu.svelte';
 	import { WEBUI_API_BASE_URL } from '$lib/constants';
+	import { CALL_SILENCE_MS, speechLanguage } from '$lib/utils/voice-stream';
 	import {
 		isVoiceAbort,
 		recordingBlob,
@@ -193,8 +194,8 @@
 		try {
 			const res = await voiceRequest(
 				[callAbortController.signal],
-				(signal) =>
-					transcribeAudio(localStorage.token, file, $settings?.audio?.stt?.language, signal),
+				// Conversation language can change every turn, independently of UI/dictation settings.
+				(signal) => transcribeAudio(localStorage.token, file, undefined, signal),
 				90_000
 			);
 			// A provider can finish after the user ends a call. Never submit late text.
@@ -405,7 +406,10 @@
 
 				// Start silence detection only after initial speech/noise has been detected
 				if (hasStartedSpeaking) {
-					if (Date.now() - lastSoundTime > 2000 || Date.now() - speechStartedAt > 60_000) {
+					if (
+						Date.now() - lastSoundTime > CALL_SILENCE_MS ||
+						Date.now() - speechStartedAt > 60_000
+					) {
 						confirmed = true;
 
 						if (mediaRecorder) {
@@ -528,9 +532,15 @@
 					utterance = new SpeechSynthesisUtterance(content);
 					currentUtterance = utterance;
 					utterance.rate = $settings.audio?.tts?.playbackRate ?? 1;
-					const voice = speechSynthesis
-						.getVoices()
-						.find((voice) => voice.voiceURI === getVoiceId());
+					const voices = speechSynthesis.getVoices();
+					const explicitVoice = voices.find((voice) => voice.voiceURI === getVoiceId());
+					const language = explicitVoice?.lang || speechLanguage(content);
+					if (language) utterance.lang = language;
+					const voice =
+						explicitVoice ||
+						voices.find(
+							(voice) => language && voice.lang.toLowerCase().startsWith(language.split('-')[0])
+						);
 					if (voice) utterance.voice = voice;
 					utterance.onend = () => finish();
 					utterance.onerror = () => finish(new Error($i18n.t('Speech playback failed')));

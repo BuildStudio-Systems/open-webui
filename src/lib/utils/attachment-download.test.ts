@@ -14,6 +14,196 @@ import {
 const origin = 'https://there.example';
 const path = '/api/v1/agent-files/' + 'a'.repeat(32) + '/report.pdf';
 
+const deferred = <T>() => {
+	let resolve!: (value: T) => void;
+	let reject!: (error: Error) => void;
+	const promise = new Promise<T>((yes, no) => {
+		resolve = yes;
+		reject = no;
+	});
+	return { promise, resolve, reject };
+};
+
+describe('cancelled attachment intents', () => {
+	it('keeps a pending native picker single-flight and ignores its late handle after abort', async () => {
+		const pending = deferred<{ createWritable: () => Promise<WritableStream<Uint8Array>> }>();
+		const picker = vi.fn(() => pending.promise);
+		const controller = new AbortController();
+		const fetcher = vi.fn();
+		const createWritable = vi.fn();
+		const first = saveAttachment(
+			path,
+			origin,
+			'session',
+			vi.fn(),
+			picker,
+			fetcher,
+			undefined,
+			controller.signal
+		);
+		controller.abort();
+		expect(await first).toBe('cancelled');
+		await expect(saveAttachment(path, origin, 'session', vi.fn(), picker, fetcher)).rejects.toThrow(
+			'already open'
+		);
+		expect(picker).toHaveBeenCalledOnce();
+		pending.resolve({ createWritable });
+		await Promise.resolve();
+		await Promise.resolve();
+		expect(fetcher).not.toHaveBeenCalled();
+		expect(createWritable).not.toHaveBeenCalled();
+	});
+
+	it('only explicitly requested browser download proceeds while an abandoned picker is pending', async () => {
+		const pending = deferred<{ createWritable: () => Promise<WritableStream<Uint8Array>> }>();
+		const controller = new AbortController();
+		const save = vi.fn();
+		const fetcher = vi.fn().mockResolvedValue(new Response('synthetic'));
+		const first = saveAttachment(
+			path,
+			origin,
+			'session',
+			save,
+			() => pending.promise,
+			fetcher,
+			undefined,
+			controller.signal
+		);
+		controller.abort();
+		expect(await first).toBe('cancelled');
+		expect(fetcher).not.toHaveBeenCalled();
+		expect(await saveAttachment(path, origin, 'session', save, undefined, fetcher)).toBe('saved');
+		pending.reject(new DOMException('late native cancellation', 'AbortError'));
+		await Promise.resolve();
+		await Promise.resolve();
+		expect(fetcher).toHaveBeenCalledOnce();
+		expect(save).toHaveBeenCalledOnce();
+	});
+
+	it('passes the signal to fetch and cancels a late response instead of saving it', async () => {
+		const response = deferred<Response>();
+		const controller = new AbortController();
+		const save = vi.fn(),
+			cancel = vi.fn();
+		const fetcher = vi.fn<Parameters<typeof fetch>, ReturnType<typeof fetch>>(
+			() => response.promise
+		);
+		const request = saveAttachment(
+			path,
+			origin,
+			'session',
+			save,
+			undefined,
+			fetcher,
+			undefined,
+			controller.signal
+		);
+		const rejected = expect(request).rejects.toMatchObject({ name: 'AbortError' });
+		controller.abort();
+		await rejected;
+		response.resolve(new Response(new ReadableStream({ cancel })));
+		await vi.waitFor(() => expect(cancel).toHaveBeenCalledOnce());
+		expect(fetcher.mock.calls[0][1]?.signal).toBe(controller.signal);
+		expect(cancel).toHaveBeenCalledOnce();
+		expect(save).not.toHaveBeenCalled();
+	});
+
+	it('cancels a pending bounded read and releases its reader without saving', async () => {
+		const controller = new AbortController();
+		const cancel = vi.fn(),
+			save = vi.fn();
+		const body = new ReadableStream<Uint8Array>({ pull() {}, cancel });
+		const response = new Response(body);
+		const request = saveAttachment(
+			path,
+			origin,
+			'session',
+			save,
+			undefined,
+			vi.fn().mockResolvedValue(response),
+			undefined,
+			controller.signal
+		);
+		await vi.waitFor(() => expect(body.locked).toBe(true));
+		const rejected = expect(request).rejects.toMatchObject({ name: 'AbortError' });
+		controller.abort();
+		await rejected;
+		expect(cancel).toHaveBeenCalledOnce();
+		expect(body.locked).toBe(false);
+		expect(save).not.toHaveBeenCalled();
+	});
+
+	it('cancels the response and aborts a writer granted after its intent ended', async () => {
+		const writer = deferred<WritableStream<Uint8Array>>();
+		const controller = new AbortController();
+		const cancel = vi.fn(),
+			abort = vi.fn(),
+			write = vi.fn(),
+			save = vi.fn();
+		const createWritable = vi.fn(() => writer.promise);
+		const response = new Response(new ReadableStream({ cancel }));
+		const request = saveAttachment(
+			path,
+			origin,
+			'session',
+			save,
+			vi.fn().mockResolvedValue({ createWritable }),
+			vi.fn().mockResolvedValue(response),
+			undefined,
+			controller.signal
+		);
+		await vi.waitFor(() => expect(createWritable).toHaveBeenCalledOnce());
+		const rejected = expect(request).rejects.toMatchObject({ name: 'AbortError' });
+		controller.abort();
+		await rejected;
+		writer.resolve(new WritableStream({ abort, write }));
+		await vi.waitFor(() => expect(abort).toHaveBeenCalledOnce());
+		expect(cancel).toHaveBeenCalledOnce();
+		expect(write).not.toHaveBeenCalled();
+		expect(save).not.toHaveBeenCalled();
+	});
+
+	it('aborts both sides of a live streaming download without closing a partial file', async () => {
+		const controller = new AbortController();
+		const cancel = vi.fn(),
+			abort = vi.fn(),
+			close = vi.fn();
+		const response = new Response(new ReadableStream<Uint8Array>({ pull() {}, cancel }));
+		const createWritable = vi.fn().mockResolvedValue(new WritableStream({ abort, close }));
+		const request = saveAttachment(
+			path,
+			origin,
+			'session',
+			vi.fn(),
+			vi.fn().mockResolvedValue({ createWritable }),
+			vi.fn().mockResolvedValue(response),
+			undefined,
+			controller.signal
+		);
+		await vi.waitFor(() => expect(response.body?.locked).toBe(true));
+		const rejected = expect(request).rejects.toMatchObject({ name: 'AbortError' });
+		controller.abort();
+		await rejected;
+		expect(cancel).toHaveBeenCalledOnce();
+		expect(abort).toHaveBeenCalledOnce();
+		expect(close).not.toHaveBeenCalled();
+	});
+
+	it('does not start any I/O for a signal already aborted', async () => {
+		const controller = new AbortController();
+		controller.abort();
+		const picker = vi.fn(),
+			fetcher = vi.fn(),
+			save = vi.fn();
+		await expect(
+			saveAttachment(path, origin, 'session', save, picker, fetcher, undefined, controller.signal)
+		).rejects.toMatchObject({ name: 'AbortError' });
+		expect(picker).not.toHaveBeenCalled();
+		expect(fetcher).not.toHaveBeenCalled();
+		expect(save).not.toHaveBeenCalled();
+	});
+});
+
 describe('attachment download', () => {
 	it('streams 128 MiB with backpressure beyond the compatibility buffer cap', async () => {
 		let produced = 0;

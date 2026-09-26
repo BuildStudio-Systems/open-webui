@@ -126,16 +126,73 @@ export function responseDownloadName(disposition: string | null, fallback: strin
 	return safeDownloadName(plain?.[1] ?? plain?.[2]?.trim() ?? fallback, fallback);
 }
 
-async function attachmentResponse(href: string, origin: string, token: string, fetcher = fetch) {
+function throwIfDownloadAborted(signal?: AbortSignal) {
+	if (signal?.aborted) throw new DOMException('Attachment download cancelled', 'AbortError');
+}
+
+/** Settle our intent on abort, while safely discarding unabortable late results. */
+function downloadRequest<T>(
+	request: Promise<T>,
+	signal?: AbortSignal,
+	discard?: (value: T) => void | Promise<unknown>
+): Promise<T> {
+	return new Promise((resolve, reject) => {
+		let finished = false;
+		const abort = () => {
+			if (finished) return;
+			finished = true;
+			signal?.removeEventListener('abort', abort);
+			reject(new DOMException('Attachment download cancelled', 'AbortError'));
+		};
+		signal?.addEventListener('abort', abort, { once: true });
+		if (signal?.aborted) abort();
+		request.then(
+			(value) => {
+				if (finished) {
+					if (discard)
+						void Promise.resolve()
+							.then(() => discard(value))
+							.catch(() => {});
+					return;
+				}
+				finished = true;
+				signal?.removeEventListener('abort', abort);
+				resolve(value);
+			},
+			(error) => {
+				if (finished) return;
+				finished = true;
+				signal?.removeEventListener('abort', abort);
+				reject(error);
+			}
+		);
+	});
+}
+
+async function attachmentResponse(
+	href: string,
+	origin: string,
+	token: string,
+	fetcher = fetch,
+	signal?: AbortSignal
+) {
 	const url = attachmentUrl(href, origin);
 	if (!url) throw new Error('Unsupported attachment URL');
 	if (!token) throw new Error('Please sign in to download this attachment');
-	const response = await fetcher(url.href, {
-		headers: { Authorization: `Bearer ${token}` },
-		credentials: 'same-origin',
-		cache: 'no-store',
-		redirect: 'error'
-	});
+	throwIfDownloadAborted(signal);
+	const response = await downloadRequest(
+		fetcher(url.href, {
+			headers: { Authorization: `Bearer ${token}` },
+			credentials: 'same-origin',
+			cache: 'no-store',
+			redirect: 'error',
+			...(signal ? { signal } : {})
+		}),
+		signal,
+		(late) => late.body?.cancel()
+	);
+	if (signal?.aborted) await response.body?.cancel().catch(() => {});
+	throwIfDownloadAborted(signal);
 	if (!response.ok) {
 		await response.body?.cancel();
 		if (response.status === 401) throw new Error('Please sign in to download this attachment');
@@ -158,7 +215,11 @@ async function attachmentResponse(href: string, origin: string, token: string, f
 // Browsers without a file-system picker must never buffer an unbounded response.
 export const MAX_BUFFERED_DOWNLOAD_BYTES = 64 * 1024 * 1024;
 
-export async function boundedDownloadBlob(response: Response): Promise<Blob> {
+export async function boundedDownloadBlob(response: Response, signal?: AbortSignal): Promise<Blob> {
+	if (signal?.aborted) {
+		await response.body?.cancel().catch(() => {});
+		throwIfDownloadAborted(signal);
+	}
 	const tooLarge = () =>
 		new Error(
 			'Attachment exceeds the 64 MiB browser buffer limit; use a desktop browser with streaming save support'
@@ -169,11 +230,17 @@ export async function boundedDownloadBlob(response: Response): Promise<Blob> {
 	}
 	if (!response.body) throw new Error('Attachment download failed');
 	const reader = response.body.getReader();
+	const abort = () => {
+		void reader.cancel().catch(() => {});
+	};
+	signal?.addEventListener('abort', abort, { once: true });
 	const chunks: ArrayBuffer[] = [];
 	let size = 0;
 	try {
 		while (true) {
-			const { done, value } = await reader.read();
+			throwIfDownloadAborted(signal);
+			const { done, value } = await downloadRequest(reader.read(), signal);
+			throwIfDownloadAborted(signal);
 			if (done) break;
 			size += value.byteLength;
 			if (size > MAX_BUFFERED_DOWNLOAD_BYTES) throw tooLarge();
@@ -184,6 +251,7 @@ export async function boundedDownloadBlob(response: Response): Promise<Blob> {
 		await reader.cancel().catch(() => {});
 		throw error;
 	} finally {
+		signal?.removeEventListener('abort', abort);
 		reader.releaseLock();
 	}
 }
@@ -192,15 +260,44 @@ export async function fetchAttachment(
 	href: string,
 	origin: string,
 	token: string,
-	fetcher = fetch
+	fetcher = fetch,
+	signal?: AbortSignal
 ) {
-	const { response, filename } = await attachmentResponse(href, origin, token, fetcher);
-	return { blob: await boundedDownloadBlob(response), filename };
+	const { response, filename } = await attachmentResponse(href, origin, token, fetcher, signal);
+	return { blob: await boundedDownloadBlob(response, signal), filename };
 }
 
 export type AttachmentSavePicker = (options: { suggestedName: string }) => Promise<{
 	createWritable(): Promise<WritableStream<Uint8Array>>;
 }>;
+
+// Native pickers cannot be dismissed by AbortSignal. Keep this single-flight
+// guard until the native request settles, even if its UI intent was abandoned.
+let activeAttachmentPicker: symbol | undefined;
+
+async function chooseAttachmentFile(
+	picker: AttachmentSavePicker,
+	suggestedName: string,
+	signal?: AbortSignal
+) {
+	throwIfDownloadAborted(signal);
+	if (activeAttachmentPicker)
+		throw new Error('A save dialog is already open; finish or cancel it first');
+	const intent = Symbol();
+	activeAttachmentPicker = intent;
+	let request: ReturnType<AttachmentSavePicker>;
+	try {
+		// Invoke synchronously in the original user click, not after an await.
+		request = picker({ suggestedName });
+	} catch (error) {
+		activeAttachmentPicker = undefined;
+		throw error;
+	}
+	const settled = request.finally(() => {
+		if (activeAttachmentPicker === intent) activeAttachmentPicker = undefined;
+	});
+	return downloadRequest(settled, signal);
+}
 
 /** Must be called directly from the click handler, before any network await. */
 export async function saveAttachment(
@@ -210,13 +307,16 @@ export async function saveAttachment(
 	saveBlob: (blob: Blob, filename: string) => void,
 	picker?: AttachmentSavePicker,
 	fetcher = fetch,
-	suggestedName?: string
+	suggestedName?: string,
+	signal?: AbortSignal
 ): Promise<'saved' | 'cancelled'> {
 	const url = attachmentUrl(href, origin);
 	if (!url) throw new Error('Unsupported attachment URL');
 	if (!token) throw new Error('Please sign in to download this attachment');
+	throwIfDownloadAborted(signal);
 	if (!picker) {
-		const result = await fetchAttachment(href, origin, token, fetcher);
+		const result = await fetchAttachment(href, origin, token, fetcher, signal);
+		throwIfDownloadAborted(signal);
 		saveBlob(result.blob, result.filename);
 		return 'saved';
 	}
@@ -228,22 +328,24 @@ export async function saveAttachment(
 	}
 	let handle: Awaited<ReturnType<AttachmentSavePicker>>;
 	try {
-		handle = await picker({ suggestedName: safeDownloadName(suggestedName ?? name) });
+		handle = await chooseAttachmentFile(picker, safeDownloadName(suggestedName ?? name), signal);
 	} catch (error) {
 		if (error instanceof Error && error.name === 'AbortError') return 'cancelled';
 		throw error; // No silent fallback after a permission denial or cancellation.
 	}
-	const { response } = await attachmentResponse(href, origin, token, fetcher);
+	throwIfDownloadAborted(signal);
+	const { response } = await attachmentResponse(href, origin, token, fetcher, signal);
 	if (!response.body) throw new Error('Attachment download failed');
 	let writable: WritableStream<Uint8Array>;
 	try {
-		writable = await handle.createWritable();
+		throwIfDownloadAborted(signal);
+		writable = await downloadRequest(handle.createWritable(), signal, (late) => late.abort());
 	} catch (error) {
 		await response.body.cancel().catch(() => {});
 		throw error;
 	}
 	// pipeTo applies backpressure and aborts the temporary write on read failure.
-	await response.body.pipeTo(writable);
+	await response.body.pipeTo(writable, signal ? { signal } : undefined);
 	return 'saved';
 }
 

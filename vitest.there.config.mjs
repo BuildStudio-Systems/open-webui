@@ -13,6 +13,7 @@ export default {
 			'src/lib/apis/there/*.test.ts',
 			'src/lib/constants/permissions.test.ts',
 			'src/lib/utils/attachment-download.test.ts',
+			'src/lib/utils/attachment-download-ui.test.ts',
 			'src/lib/utils/language-fonts.test.ts'
 		]
 	}

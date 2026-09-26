@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
 	attachmentUrl,
+	browserAttachmentDownloadUrl,
 	boundedDownloadBlob,
 	MAX_BUFFERED_DOWNLOAD_BYTES,
 	saveAttachment,
@@ -23,6 +24,60 @@ const deferred = <T>() => {
 	});
 	return { promise, resolve, reject };
 };
+
+describe('browser-owned attachment URLs', () => {
+	it.each([
+		[path, origin + path],
+		[path + '?token=secret&attachment=false#credential', origin + path],
+		[origin + path + '?access_token=secret', origin + path],
+		[
+			'/api/v1/files/file-id/content?token=secret#fragment',
+			origin + '/api/v1/files/file-id/content?attachment=true'
+		],
+		[
+			'/api/v1/files/file-id/content/report.pdf?attachment=false',
+			origin + '/api/v1/files/file-id/content/report.pdf?attachment=true'
+		],
+		[
+			'/api/v1/files/file-id/content/html?token=secret',
+			origin + '/api/v1/files/file-id/content?attachment=true'
+		],
+		[
+			'/api/v1/files/file-id/content/%68tml#fragment',
+			origin + '/api/v1/files/file-id/content?attachment=true'
+		],
+		[
+			'/api/v1/files/file-id/content/generated.txt',
+			origin + '/api/v1/files/file-id/content/generated.txt?attachment=true'
+		],
+		[
+			'/api/v1/videos/jobs/job-id/content?key=secret#fragment',
+			origin + '/api/v1/videos/jobs/job-id/content'
+		],
+		[
+			'/api/v1/files/file-id/content/%E6%8A%A5%E5%91%8A.pdf',
+			origin + '/api/v1/files/file-id/content/%E6%8A%A5%E5%91%8A.pdf?attachment=true'
+		]
+	])('uses only the controlled HTTP endpoint: %s', (input, expected) => {
+		expect(browserAttachmentDownloadUrl(input, origin)).toBe(expected);
+	});
+	it.each([
+		'https://external.example' + path,
+		'//external.example' + path,
+		'https://name:password@there.example' + path,
+		'http://there.example' + path,
+		'javascript:alert(1)',
+		'blob:' + origin + '/file',
+		'/api/v1/files/file-id',
+		'/api/v1/files/file%2fid/content',
+		'/api/v1/files/file-id/content/a%5cb.txt',
+		'/api/v1/files/file-id/content/a%00b.txt',
+		'/api/v1/files/file-id/content/%ZZ',
+		'/api/v1/agent-files/not-an-id/report.txt'
+	])('rejects unsupported or ambiguous navigable URLs: %s', (input) => {
+		expect(browserAttachmentDownloadUrl(input, origin)).toBeNull();
+	});
+});
 
 describe('cancelled attachment intents', () => {
 	it('keeps a pending native picker single-flight and ignores its late handle after abort', async () => {

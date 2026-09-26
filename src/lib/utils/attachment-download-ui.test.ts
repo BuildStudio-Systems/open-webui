@@ -2,7 +2,12 @@ import { readFileSync } from 'node:fs';
 import { compile } from 'svelte/compiler';
 import ts from 'typescript';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { attachmentUrl, saveAttachment, MAX_BUFFERED_DOWNLOAD_BYTES } from './attachment-download';
+import {
+	attachmentUrl,
+	browserAttachmentDownloadUrl,
+	saveAttachment,
+	MAX_BUFFERED_DOWNLOAD_BYTES
+} from './attachment-download';
 
 const origin = 'https://there.example';
 const href = '/api/v1/agent-files/' + 'a'.repeat(32) + '/report.txt';
@@ -34,12 +39,12 @@ const reactive = tree.statements
 const factory = new Function(
 	'deps',
 	`
-const {onDestroy,attachmentUrl,saveAttachment,browserAttachmentSavePicker,fileSaver,toast,
+const {onDestroy,attachmentUrl,browserAttachmentDownloadUrl,saveAttachment,browserAttachmentSavePicker,fileSaver,toast,
   window,localStorage,fetch,$i18n}=deps;
 let attachmentCopy;
 ${compiled}
 ${reactive}
-return {start:downloadAttachment,intent:(href)=>attachmentDownloads.get(href),
+return {start:downloadAttachment,browser:requestBrowserAttachment,intent:(href)=>attachmentDownloads.get(href),
   count:()=>attachmentDownloads.size,disposed:()=>attachmentDisposed};
 `
 );
@@ -78,6 +83,7 @@ function entry(
 			destroy = handler;
 		},
 		attachmentUrl,
+		browserAttachmentDownloadUrl,
 		saveAttachment,
 		browserAttachmentSavePicker: () => picker,
 		fileSaver: { saveAs: vi.fn() },
@@ -147,21 +153,21 @@ describe('actual attachment link lifecycle with real download helper', () => {
 		expect(oldIntent.phase).toBe('waiting');
 		await flush();
 		expect(deps.fetch).not.toHaveBeenCalled();
-		const next = api.start(href, 'browser');
+		const click = new Event('click', { cancelable: true });
+		const next = api.browser(click, href);
 		const nextIntent = api.intent(href);
-		await api.start(href, 'browser');
-		await next;
+		expect(next).toBeUndefined();
+		expect(click.defaultPrevented).toBe(false);
 		await old;
 		expect(oldIntent.controller.signal.aborted).toBe(true);
-		expect(deps.fetch).toHaveBeenCalledOnce();
-		expect(vi.mocked(deps.fetch).mock.calls[0][1]?.signal).toBe(nextIntent.controller.signal);
-		expect(nextIntent.phase).toBe('saved');
-		expect(deps.fileSaver.saveAs).toHaveBeenCalledOnce();
+		expect(deps.fetch).not.toHaveBeenCalled();
+		expect(nextIntent.phase).toBe('requested');
+		expect(deps.fileSaver.saveAs).not.toHaveBeenCalled();
 		native.resolve(native.handle);
 		await flush();
 		expect(native.handle.createWritable).not.toHaveBeenCalled();
 		expect(api.intent(href)).toBe(nextIntent);
-		expect(nextIntent.phase).toBe('saved');
+		expect(nextIntent.phase).toBe('requested');
 		expect(deps.toast.error).not.toHaveBeenCalled();
 	});
 
@@ -169,13 +175,13 @@ describe('actual attachment link lifecycle with real download helper', () => {
 		const native = pendingPicker();
 		const { api, deps } = entry(native.picker);
 		const old = api.start(href, 'stream');
-		await api.start(href, 'browser');
+		api.browser(new Event('click', { cancelable: true }), href);
 		const current = api.intent(href);
 		native.reject(new DOMException('old denied', 'NotAllowedError'));
 		await old;
 		await flush();
 		expect(api.intent(href)).toBe(current);
-		expect(current.phase).toBe('saved');
+		expect(current.phase).toBe('requested');
 		expect(deps.toast.error).not.toHaveBeenCalled();
 	});
 
@@ -203,12 +209,13 @@ describe('actual attachment link lifecycle with real download helper', () => {
 		expect(deps.fetch).not.toHaveBeenCalled();
 		expect(deps.fileSaver.saveAs).not.toHaveBeenCalled();
 		expect(deps.toast.error).toHaveBeenCalledOnce();
-		await api.start(href, 'browser');
-		expect(deps.fetch).toHaveBeenCalledOnce();
-		expect(deps.fileSaver.saveAs).toHaveBeenCalledOnce();
+		api.browser(new Event('click', { cancelable: true }), href);
+		expect(api.intent(href).phase).toBe('requested');
+		expect(deps.fetch).not.toHaveBeenCalled();
+		expect(deps.fileSaver.saveAs).not.toHaveBeenCalled();
 	});
 
-	it('uses browser state when no native picker exists and coalesces both button styles', async () => {
+	it('preserves the primary helper fallback and coalesces it when no native picker exists', async () => {
 		const response = deferred<Response>();
 		const { api, deps } = entry(
 			undefined,
@@ -218,7 +225,7 @@ describe('actual attachment link lifecycle with real download helper', () => {
 		const intent = api.intent(href);
 		expect(intent.mode).toBe('browser');
 		expect(intent.phase).toBe('downloading');
-		await api.start(href, 'browser');
+		await api.start(href);
 		await api.start(href, 'stream');
 		expect(api.intent(href)).toBe(intent);
 		expect(intent.controller.signal.aborted).toBe(false);
@@ -239,7 +246,9 @@ describe('actual attachment link lifecycle with real download helper', () => {
 		destroy();
 		native.resolve(native.handle);
 		await first;
-		await api.start(href, 'browser');
+		const click = new Event('click', { cancelable: true });
+		api.browser(click, href);
+		expect(click.defaultPrevented).toBe(true);
 		expect(api.disposed()).toBe(true);
 		expect(api.count()).toBe(0);
 		expect(native.handle.createWritable).not.toHaveBeenCalled();
@@ -254,7 +263,7 @@ describe('actual attachment link lifecycle with real download helper', () => {
 			undefined,
 			vi.fn(() => response.promise)
 		);
-		const first = api.start(href, 'browser');
+		const first = api.start(href);
 		const signal = api.intent(href).controller.signal;
 		destroy();
 		await first;
@@ -282,7 +291,7 @@ describe('actual attachment link lifecycle with real download helper', () => {
 			undefined,
 			vi.fn(async () => response)
 		);
-		const first = api.start(href, 'browser');
+		const first = api.start(href);
 		await pulling.promise;
 		await flush();
 		destroy();
@@ -306,7 +315,7 @@ describe('actual attachment link lifecycle with real download helper', () => {
 		const old = api.start(href, 'stream');
 		await vi.waitFor(() => expect(fetcher).toHaveBeenCalledOnce());
 		const oldIntent = api.intent(href);
-		await api.start(href, 'browser');
+		api.browser(new Event('click', { cancelable: true }), href);
 		await old;
 		const current = api.intent(href);
 		expect(current.controller).not.toBe(oldIntent.controller);
@@ -316,9 +325,10 @@ describe('actual attachment link lifecycle with real download helper', () => {
 		await flush();
 		expect(cancel).toHaveBeenCalledOnce();
 		expect(native.createWritable).not.toHaveBeenCalled();
-		expect(deps.fileSaver.saveAs).toHaveBeenCalledOnce();
+		expect(deps.fileSaver.saveAs).not.toHaveBeenCalled();
+		expect(fetcher).toHaveBeenCalledOnce();
 		expect(api.intent(href)).toBe(current);
-		expect(current.phase).toBe('saved');
+		expect(current.phase).toBe('requested');
 	});
 
 	it('ignores stale fetch failure after replacement success', async () => {
@@ -333,13 +343,13 @@ describe('actual attachment link lifecycle with real download helper', () => {
 		);
 		const old = api.start(href, 'stream');
 		await vi.waitFor(() => expect(fetcher).toHaveBeenCalledOnce());
-		await api.start(href, 'browser');
+		api.browser(new Event('click', { cancelable: true }), href);
 		oldResponse.reject(new Error('old network failure'));
 		await old;
 		await flush();
-		expect(api.intent(href).phase).toBe('saved');
+		expect(api.intent(href).phase).toBe('requested');
 		expect(deps.toast.error).not.toHaveBeenCalled();
-		expect(deps.fileSaver.saveAs).toHaveBeenCalledOnce();
+		expect(deps.fileSaver.saveAs).not.toHaveBeenCalled();
 	});
 
 	it('aborts a late writable without writing or closing after component destruction', async () => {
@@ -408,7 +418,7 @@ describe('actual attachment link lifecycle with real download helper', () => {
 		expect(deps.fileSaver.saveAs).not.toHaveBeenCalled();
 	});
 
-	it('reports an oversized explicit browser request as failed without saving its body', async () => {
+	it('preserves the bounded primary helper fallback without a native picker', async () => {
 		const cancel = vi.fn();
 		const response = new Response(new ReadableStream({ cancel }), {
 			headers: { 'content-length': String(MAX_BUFFERED_DOWNLOAD_BYTES + 1) }
@@ -417,7 +427,7 @@ describe('actual attachment link lifecycle with real download helper', () => {
 			undefined,
 			vi.fn(async () => response)
 		);
-		await api.start(href, 'browser');
+		await api.start(href);
 		expect(api.intent(href).phase).toBe('failed');
 		expect(cancel).toHaveBeenCalledOnce();
 		expect(deps.fileSaver.saveAs).not.toHaveBeenCalled();
@@ -427,21 +437,60 @@ describe('actual attachment link lifecycle with real download helper', () => {
 	it('does not initiate a download for unsupported targets', async () => {
 		const picker = vi.fn();
 		const { api, deps } = entry(picker);
-		await api.start('https://external.example' + href, 'browser');
+		const click = new Event('click', { cancelable: true });
+		api.browser(click, 'https://external.example' + href);
+		expect(click.defaultPrevented).toBe(true);
 		expect(api.count()).toBe(0);
 		expect(picker).not.toHaveBeenCalled();
 		expect(deps.fetch).not.toHaveBeenCalled();
 	});
 
-	it('compiles the actual Svelte template and wires an explicit bounded action and live feedback', () => {
+	it('keeps valid browser clicks synchronous and allows the browser default action', async () => {
+		const native = pendingPicker();
+		const { api, deps } = entry(native.picker);
+		const pending = api.start(href);
+		const old = api.intent(href);
+		const target = new EventTarget();
+		target.addEventListener('click', (event) => api.browser(event, href));
+		target.addEventListener('click', () => expect(old.controller.signal.aborted).toBe(true));
+		const click = new Event('click', { cancelable: true });
+		expect(target.dispatchEvent(click)).toBe(true);
+		expect(click.defaultPrevented).toBe(false);
+		expect(api.intent(href)).toMatchObject({ mode: 'http', phase: 'requested' });
+		expect(deps.fetch).not.toHaveBeenCalled();
+		expect(deps.fileSaver.saveAs).not.toHaveBeenCalled();
+		await pending;
+	});
+
+	it('compiles the real Svelte anchor with HTTP href and a normal default download action', () => {
 		const result = compile(source, { filename: 'MarkdownInlineTokens.svelte', generate: 'client' });
-		expect(result.js.code).toContain('downloadAttachment');
-		expect(source).toContain("on:click={() => downloadAttachment(token.href, 'browser')}");
-		expect(source).toContain(
-			"disabled={download?.mode === 'browser' && attachmentPending(download)}"
+		const anchors: any[] = [];
+		const visit = (node: any) => {
+			if (!node || typeof node !== 'object') return;
+			if (node.name === 'a' && node.attributes?.some((a: any) => a.name === 'download'))
+				anchors.push(node);
+			for (const [key, value] of Object.entries(node)) {
+				if (key !== 'parent') {
+					if (Array.isArray(value)) value.forEach(visit);
+					else visit(value);
+				}
+			}
+		};
+		visit(result.ast);
+		expect(anchors).toHaveLength(1);
+		const anchor = anchors[0];
+		expect(anchor.attributes.find((a: any) => a.name === 'href').value[0].expression.name).toBe(
+			'browserDownloadHref'
 		);
+		expect(anchor.attributes.find((a: any) => a.name === 'click').expression.body.callee.name).toBe(
+			'requestBrowserAttachment'
+		);
+		expect(anchor.attributes.find((a: any) => a.name === 'click').modifiers).toEqual([]);
+		expect(anchor.attributes.find((a: any) => a.name === 'download').value).toBe(true);
+		expect(result.js.code).toContain('requestBrowserAttachment');
 		expect(source).toContain('role="status" aria-live="polite"');
-		expect(source).toContain('浏览器下载（≤64 MiB）');
-		expect(source).toContain('ブラウザーでダウンロード（≤64 MiB）');
+		expect(source).not.toContain('≤64 MiB');
+		expect(source).toContain("browser: '浏览器下载'");
+		expect(source).toContain("browser: 'ブラウザーでダウンロード'");
 	});
 });

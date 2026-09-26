@@ -113,6 +113,38 @@ export function attachmentUrl(href: string, origin: string): URL | null {
 	return null;
 }
 
+/** Browser-owned HTTP download, using the existing same-origin login cookie. */
+export function browserAttachmentDownloadUrl(href: string, origin: string): string | null {
+	const url = attachmentUrl(href, origin);
+	if (!url || !['https:', 'http:'].includes(url.protocol)) return null;
+	try {
+		// Encoded separators must not change which server route receives the request.
+		if (
+			url.pathname.split('/').some((part) => {
+				const decoded = decodeURIComponent(part);
+				return /[\\/\u0000-\u001f\u007f]/.test(decoded) || decoded === '.' || decoded === '..';
+			})
+		)
+			return null;
+	} catch {
+		return null;
+	}
+	// Never copy model-supplied tokens, flags or fragments into a navigable URL.
+	url.search = '';
+	url.hash = '';
+	if (/^\/api\/v1\/files\//.test(url.pathname)) {
+		// /content/html is a preview route that ignores attachment=true. Route only
+		// that reserved suffix through the file endpoint; other display-name routes
+		// can also stream generated text whose record has no stored file path.
+		const suffix = url.pathname.match(/\/content\/([^/]+)$/)?.[1];
+		if (suffix && decodeURIComponent(suffix) === 'html') {
+			url.pathname = url.pathname.slice(0, url.pathname.lastIndexOf('/'));
+		}
+		url.searchParams.set('attachment', 'true');
+	}
+	return url.href;
+}
+
 export function responseDownloadName(disposition: string | null, fallback: string): string {
 	const encoded = disposition?.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
 	if (encoded) {

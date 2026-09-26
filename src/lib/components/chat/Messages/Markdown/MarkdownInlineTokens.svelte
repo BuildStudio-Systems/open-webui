@@ -4,6 +4,7 @@
 	import fileSaver from 'file-saver';
 	import {
 		attachmentUrl,
+		browserAttachmentDownloadUrl,
 		saveAttachment,
 		browserAttachmentSavePicker,
 		type AttachmentSavePicker
@@ -35,14 +36,14 @@
 	export let onSourceClick: Function = () => {};
 
 	// Attachment intent lifecycle: native save dialogs may outlive this component.
-	type DownloadMode = 'stream' | 'browser';
-	type DownloadPhase = 'waiting' | 'downloading' | 'saved' | 'cancelled' | 'failed';
+	type DownloadMode = 'stream' | 'browser' | 'http';
+	type DownloadPhase = 'waiting' | 'downloading' | 'saved' | 'cancelled' | 'failed' | 'requested';
 	type DownloadIntent = { controller: AbortController; mode: DownloadMode; phase: DownloadPhase };
 	let attachmentDownloads = new Map<string, DownloadIntent>();
 	let attachmentDisposed = false;
 	const downloadCopy = {
 		en: {
-			browser: 'Browser download (≤64 MiB)',
+			browser: 'Browser download',
 			stream: 'Save as (streaming, supports large files)',
 			alreadyOpen: 'A save dialog is already open; finish or cancel it first',
 			waiting: 'Waiting for the system save dialog…',
@@ -53,7 +54,7 @@
 			failed: 'Download failed'
 		},
 		zh: {
-			browser: '浏览器下载（≤64 MiB）',
+			browser: '浏览器下载',
 			stream: '另存为（流式保存，支持大文件）',
 			alreadyOpen: '已有保存窗口等待处理，请先完成或取消该窗口',
 			waiting: '等待系统保存窗口确认…',
@@ -64,7 +65,7 @@
 			failed: '下载失败'
 		},
 		ja: {
-			browser: 'ブラウザーでダウンロード（≤64 MiB）',
+			browser: 'ブラウザーでダウンロード',
 			stream: '名前を付けて保存（大きいファイルに対応）',
 			alreadyOpen: '保存ダイアログが開いています。先に保存またはキャンセルしてください',
 			waiting: 'システムの保存ダイアログを待っています…',
@@ -94,15 +95,25 @@
 		intent.phase = phase;
 		attachmentDownloads = new Map(attachmentDownloads);
 	};
-	const downloadAttachment = async (href: string, mode: DownloadMode) => {
+	const requestBrowserAttachment = (event: MouseEvent, href: string) => {
+		if (attachmentDisposed || !browserAttachmentDownloadUrl(href, window.location.origin)) {
+			event.preventDefault();
+			return;
+		}
+		// Do not await, fetch, synthesize a click or prevent the valid anchor's default action.
+		// The browser sends its existing HttpOnly cookie; server ACLs still decide access.
+		attachmentDownloads.get(href)?.controller.abort();
+		attachmentDownloads = new Map(attachmentDownloads).set(href, {
+			controller: new AbortController(),
+			mode: 'http',
+			phase: 'requested'
+		});
+	};
+	const downloadAttachment = async (href: string) => {
 		if (attachmentDisposed || !attachmentUrl(href, window.location.origin)) return;
 		const previous = attachmentDownloads.get(href);
-		if (attachmentPending(previous)) {
-			// Only an explicit browser-download click may replace a pending picker.
-			if (mode !== 'browser' || previous?.mode === 'browser') return;
-			previous?.controller.abort();
-		}
-		const nativePicker = mode === 'stream' ? browserAttachmentSavePicker() : undefined;
+		if (attachmentPending(previous)) return;
+		const nativePicker = browserAttachmentSavePicker();
 		const intent: DownloadIntent = {
 			controller: new AbortController(),
 			mode: nativePicker ? 'stream' : 'browser',
@@ -176,7 +187,7 @@
 	const handleLinkClick = async (e: MouseEvent, href: string) => {
 		if (attachmentUrl(href, window.location.origin)) {
 			e.preventDefault();
-			await downloadAttachment(href, 'stream');
+			await downloadAttachment(href);
 			return;
 		}
 		try {
@@ -210,6 +221,10 @@
 			{@const download = attachmentDownloads.get(token.href)}
 			{@const isAttachment =
 				typeof window !== 'undefined' && attachmentUrl(token.href, window.location.origin)}
+			{@const browserDownloadHref =
+				typeof window !== 'undefined'
+					? browserAttachmentDownloadUrl(token.href, window.location.origin)
+					: null}
 			<a
 				href={token.href}
 				target="_blank"
@@ -223,13 +238,17 @@
 				{:else}{token.text}{/if}
 			</a>
 			{#if isAttachment}
-				<button
-					type="button"
-					class="ms-2 inline-block text-xs underline disabled:opacity-50"
-					disabled={download?.mode === 'browser' && attachmentPending(download)}
-					on:click={() => downloadAttachment(token.href, 'browser')}
-					>{attachmentCopy.browser}</button
-				>
+				{#if browserDownloadHref}
+					<a
+						href={browserDownloadHref}
+						download
+						rel="nofollow"
+						referrerpolicy="no-referrer"
+						class="ms-2 inline-block text-xs underline"
+						on:click={(event) => requestBrowserAttachment(event, token.href)}
+						>{attachmentCopy.browser}</a
+					>
+				{/if}
 				{#if download}
 					<span class="ms-2 text-xs text-gray-500" role="status" aria-live="polite">
 						{download.phase === 'saved' && download.mode === 'browser'

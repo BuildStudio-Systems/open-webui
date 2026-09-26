@@ -65,6 +65,7 @@ def proxy(videos, monkeypatch, tmp_path):
         assert kwargs["timeout"] == videos._DOWNLOAD_TIMEOUT
         assert kwargs["trust_env"] is False
         assert kwargs["follow_redirects"] is False
+        assert kwargs["verify"] is videos._TLS_CONTEXT_NO_ENV  # Built once, not per download.
         client = real_client(transport=httpx.ASGITransport(app=counted_upstream), **kwargs)
         state.clients.append(client)
         return client

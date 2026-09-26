@@ -26,6 +26,11 @@ MAX_RESPONSE_BYTES = 8 * 1024 * 1024
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 MAX_TEXT_BYTES = 1024 * 1024
 REQUEST_DEADLINE_SECONDS = 60.0
+# httpx otherwise builds a fresh SSL context and loads the CA bundle for every client:
+# ~10-20 ms of blocking CPU on the event loop per request (three per knowledge-backed
+# chat turn). Settings are identical to the per-client default; only the immutable
+# context is reused. Each request still gets its own client and connection lifecycle.
+_TLS_CONTEXT = httpx.create_ssl_context(trust_env=False)
 _ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}\Z")
 _PRIVATE_FIELDS = {
     "api_key",
@@ -317,6 +322,7 @@ class WeKnoraClient:
                     timeout=httpx.Timeout(45.0, connect=5.0),
                     follow_redirects=False,
                     trust_env=False,
+                    verify=_TLS_CONTEXT,
                     transport=self._transport,
                 ) as client:
                     async with client.stream(

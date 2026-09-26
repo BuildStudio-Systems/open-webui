@@ -451,6 +451,25 @@
 	const emojiCache = new Map();
 	let messages: Record<string, string[]> = {};
 	let finishPlayback: (() => void) | null = null;
+	// Streamed parts, finish and hangup wake the playback loop at once; its timer is only a
+	// safety net. playbackSignal marks the reply whose segment is currently audible.
+	let wakePlaybackLoop: (() => void) | null = null;
+	let playbackSignal: AbortSignal | null = null;
+	const notifyPlaybackLoop = () => {
+		const wake = wakePlaybackLoop;
+		wakePlaybackLoop = null;
+		wake?.();
+	};
+	const waitForPlaybackWork = () =>
+		new Promise<void>((resolve) => {
+			const wake = () => {
+				clearTimeout(timer);
+				if (wakePlaybackLoop === wake) wakePlaybackLoop = null;
+				resolve();
+			};
+			const timer = setTimeout(wake, 100);
+			wakePlaybackLoop = wake;
+		});
 
 	const clearAudioCache = () => {
 		for (const audio of audioCache.values()) {
@@ -486,6 +505,7 @@
 		messages = {};
 		finishedMessages = {};
 		clearAudioCache();
+		notifyPlaybackLoop();
 	};
 
 	const playAudio = (audio: HTMLAudioElement | true, content: string, signal: AbortSignal) => {
@@ -638,17 +658,20 @@
 					// At most one look-ahead synthesis; never fan out every streamed sentence.
 					if (messages[id]?.length) void fetchAudio(messages[id][0], signal);
 					if (audio) {
+						playbackSignal = signal;
 						try {
 							await playAudio(audio, content, signal);
 						} catch (error) {
 							showVoiceError(error);
+						} finally {
+							if (playbackSignal === signal) playbackSignal = null;
 						}
 						if (audio !== true && audio.src.startsWith('blob:')) URL.revokeObjectURL(audio.src);
 					}
 					// A failed segment is skipped after a visible error, not requeued forever.
 					audioCache.delete(content);
 				} else if (finishedMessages[id]) break;
-				else await new Promise((resolve) => setTimeout(resolve, 100));
+				else await waitForPlaybackWork();
 			}
 		} finally {
 			if (currentMessageId === id) assistantSpeaking = false;
@@ -673,6 +696,12 @@
 		if (callActive() && currentMessageId === id && typeof content === 'string' && content.trim()) {
 			messages[id] ??= [];
 			messages[id].push(content);
+			// Synthesize the next segment while the current one is audible, so it is ready when
+			// playback ends. Still a single look-ahead: only the head of the queue is fetched.
+			const signal = audioAbortController.signal;
+			if (messages[id].length === 1 && playbackSignal === signal && !signal.aborted)
+				void fetchAudio(content, signal);
+			notifyPlaybackLoop();
 		}
 	};
 
@@ -681,6 +710,7 @@
 		if (callActive() && currentMessageId === id) {
 			finishedMessages[id] = true;
 			chatStreaming = false;
+			notifyPlaybackLoop();
 		}
 	};
 

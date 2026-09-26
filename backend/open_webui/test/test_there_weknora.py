@@ -96,6 +96,29 @@ class WeKnoraClientTests(unittest.IsolatedAsyncioTestCase):
             await client.list_bases()
         self.assertNotEqual(self.requests[0].headers["X-API-Key"], self.requests[1].headers["X-API-Key"])
 
+    async def test_requests_reuse_one_verifying_tls_context_but_not_clients(self):
+        async def handler(request):
+            return self.response([])
+
+        created = []
+        real_client = httpx.AsyncClient
+
+        def recording_client(**kwargs):
+            created.append(kwargs.get("verify"))
+            return real_client(**kwargs)
+
+        client = self.client(handler=handler)
+        with patch.object(weknora.httpx, "AsyncClient", side_effect=recording_client):
+            await client.list_bases()
+            await client.list_bases()
+        # A new client per request (unchanged lifecycle), never a rebuilt CA bundle.
+        self.assertEqual(len(created), 2)
+        self.assertTrue(all(context is weknora._TLS_CONTEXT for context in created))
+        import ssl
+
+        self.assertEqual(weknora._TLS_CONTEXT.verify_mode, ssl.CERT_REQUIRED)
+        self.assertTrue(weknora._TLS_CONTEXT.check_hostname)
+
     @unittest.skipIf(os.name == "nt", "POSIX permission boundary")
     async def test_world_readable_key_rejected(self):
         self.key_file.chmod(0o644)

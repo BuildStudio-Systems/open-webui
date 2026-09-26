@@ -246,6 +246,43 @@ describe('real CallOverlay script with synthetic browser/audio', () => {
 		expect(api.state().assistantSpeaking).toBe(true);
 		api.endCall();
 	});
+	it('wakes playback for a streamed segment without waiting for the poll interval', async () => {
+		vi.useFakeTimers();
+		const { api, deps } = overlay();
+		api.chatStartHandler({ detail: { id: 'prompt' } });
+		await vi.advanceTimersByTimeAsync(0);
+		api.chatEventHandler({ detail: { id: 'prompt', content: '你好。' } });
+		// Only microtasks run here; the 100 ms safety timer has not fired.
+		await vi.advanceTimersByTimeAsync(0);
+		expect(deps.synthesizeOpenAISpeech).toHaveBeenCalledTimes(1);
+		api.endCall();
+	});
+	it('synthesizes the next segment while the current one plays, one segment ahead', async () => {
+		vi.useFakeTimers();
+		const { api, deps, audioElement } = overlay();
+		audioElement.play = vi.fn(async () => {}); // Playback ends only when the test says so.
+		api.chatStartHandler({ detail: { id: 'reply' } });
+		api.chatEventHandler({ detail: { id: 'reply', content: '第一句。' } });
+		await vi.advanceTimersByTimeAsync(0);
+		expect(audioElement.play).toHaveBeenCalledTimes(1);
+		api.chatEventHandler({ detail: { id: 'reply', content: '第二句。' } });
+		await vi.advanceTimersByTimeAsync(0);
+		expect(deps.synthesizeOpenAISpeech).toHaveBeenCalledTimes(2);
+		expect(deps.synthesizeOpenAISpeech.mock.calls[1][2]).toBe('第二句。');
+		api.chatEventHandler({ detail: { id: 'reply', content: '第三句。' } });
+		await vi.advanceTimersByTimeAsync(0);
+		expect(deps.synthesizeOpenAISpeech).toHaveBeenCalledTimes(2);
+		audioElement.onended();
+		await vi.advanceTimersByTimeAsync(0);
+		expect(audioElement.play).toHaveBeenCalledTimes(2);
+		// The prefetched second segment is reused; the loop's own look-ahead fetches the third.
+		expect(deps.synthesizeOpenAISpeech.mock.calls.map((call: any[]) => call[2])).toEqual([
+			'第一句。',
+			'第二句。',
+			'第三句。'
+		]);
+		api.endCall();
+	});
 	it.each([
 		['你好。', 'zh-CN', undefined],
 		['こんにちは。', 'ja-JP', undefined],

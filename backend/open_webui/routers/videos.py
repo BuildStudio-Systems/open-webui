@@ -16,6 +16,10 @@ from open_webui.utils.auth import get_verified_user
 router = APIRouter()
 _DOWNLOAD_TIMEOUT = httpx.Timeout(connect=10.0, read=120.0, write=10.0, pool=10.0)
 _DOWNLOAD_CLOSE_TIMEOUT_SECONDS = 5.0
+# Reuse httpx's default verifying SSL contexts instead of rebuilding one (and reloading
+# the CA bundle, ~10-20 ms of event-loop CPU) for every status poll or download.
+_TLS_CONTEXT = httpx.create_ssl_context()
+_TLS_CONTEXT_NO_ENV = httpx.create_ssl_context(trust_env=False)
 
 
 async def _close_download_resource(resource) -> None:
@@ -74,7 +78,7 @@ def _upstream_error(response: httpx.Response) -> HTTPException:
 @router.post("/jobs", status_code=202)
 async def create_video(form: CreateVideoForm, user=Depends(get_verified_user)):
     base_url, _ = _coordinator()
-    async with httpx.AsyncClient(timeout=30) as client:
+    async with httpx.AsyncClient(timeout=30, verify=_TLS_CONTEXT) as client:
         response = await client.post(
             f"{base_url}/v1/videos",
             headers=_user_headers(user),
@@ -88,7 +92,7 @@ async def create_video(form: CreateVideoForm, user=Depends(get_verified_user)):
 @router.get("/jobs/{job_id}")
 async def get_video_job(job_id: str, user=Depends(get_verified_user)):
     base_url, _ = _coordinator()
-    async with httpx.AsyncClient(timeout=15) as client:
+    async with httpx.AsyncClient(timeout=15, verify=_TLS_CONTEXT) as client:
         response = await client.get(
             f"{base_url}/v1/videos/{job_id}", headers=_user_headers(user)
         )
@@ -104,7 +108,9 @@ async def get_video_content(job_id: str, request: Request, user=Depends(get_veri
     for name in ("range", "if-range", "if-none-match", "if-modified-since"):
         if value := request.headers.get(name):
             upstream_headers[name] = value
-    client = httpx.AsyncClient(timeout=_DOWNLOAD_TIMEOUT, trust_env=False, follow_redirects=False)
+    client = httpx.AsyncClient(
+        timeout=_DOWNLOAD_TIMEOUT, trust_env=False, follow_redirects=False, verify=_TLS_CONTEXT_NO_ENV
+    )
     try:
         upstream_request = client.build_request(
             "GET", f"{base_url}/v1/videos/{job_id}/content", headers=upstream_headers

@@ -23,6 +23,8 @@ router = APIRouter()
 _ARTIFACT_ID_RE = re.compile(r"^[0-9a-f]{32}$")
 _DOWNLOAD_TIMEOUT = httpx.Timeout(connect=10.0, read=120.0, write=10.0, pool=10.0)
 _DOWNLOAD_LIMITS = httpx.Limits(max_connections=50, max_keepalive_connections=10)
+# Same verification as httpx's per-client default, built once instead of per download.
+_TLS_CONTEXT = httpx.create_ssl_context()
 _DOWNLOAD_CLOSE_TIMEOUT_SECONDS = 5.0
 
 
@@ -97,7 +99,7 @@ async def download_agent_file(
         if value := request.headers.get(name):
             headers[name] = value
 
-    client = httpx.AsyncClient(timeout=_DOWNLOAD_TIMEOUT, limits=_DOWNLOAD_LIMITS)
+    client = httpx.AsyncClient(timeout=_DOWNLOAD_TIMEOUT, limits=_DOWNLOAD_LIMITS, verify=_TLS_CONTEXT)
     try:
         upstream_request = client.build_request("GET", f"{base_url}/files/{artifact_id}", headers=headers)
         response = await client.send(upstream_request, stream=True)

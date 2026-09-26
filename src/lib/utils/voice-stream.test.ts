@@ -99,7 +99,33 @@ describe('call-only multilingual streaming speech', () => {
 			'先说。链接[示例。网站](https://example.com)完成。尾部',
 			['先说。', '链接示例。', '网站完成。', '尾部']
 		],
-		['Use `value 3.14` now. Done.', ['Use value 3.14 now.', 'Done.']]
+		['Use `value 3.14` now. Done.', ['Use value 3.14 now.', 'Done.']],
+		// A long opening clause starts speaking at its pause; later sentences stay whole.
+		[
+			'这是一个比较长的开头句子，后面还有很多内容。结尾',
+			['这是一个比较长的开头句子，', '后面还有很多内容。', '结尾']
+		],
+		['你好，我是泽亚。', ['你好，我是泽亚。']],
+		[
+			'本日はご利用いただきありがとうございます、続けて説明します。',
+			['本日はご利用いただきありがとうございます、', '続けて説明します。']
+		],
+		[
+			'This opening clause is intentionally long enough to speak early, then it continues.',
+			['This opening clause is intentionally long enough to speak early,', 'then it continues.']
+		],
+		[
+			'The regional total across every branch was 1,234,567 dollars today. Next',
+			['The regional total across every branch was 1,234,567 dollars today.', 'Next']
+		],
+		[
+			'短句。第二句同样很长很长很长很长很长很长，结尾。',
+			['短句。', '第二句同样很长很长很长很长很长很长，结尾。']
+		],
+		[
+			'**重要的开场说明要点在这里**，然后继续。',
+			['重要的开场说明要点在这里，', '然后继续。']
+		]
 	])(
 		'every-character chunks preserve spoken order and flush final tail once: %s',
 		(content, expected) => {
@@ -130,6 +156,18 @@ describe('call-only multilingual streaming speech', () => {
 	it('retains a literal bracketed or backtick tail at final completion', () => {
 		expect(callSpeechParts('Array [1, 2]', 'punctuation', true, clean)).toEqual(['Array [1, 2]']);
 		expect(callSpeechParts('A literal `', 'punctuation', true, clean)).toEqual(['A literal `']);
+	});
+	it('keeps clause pauses out of paragraph and whole-reply modes', () => {
+		const opening = '这是一个比较长的开头句子，后面';
+		expect(callSpeechParts(opening, 'punctuation', false, clean)).toEqual([
+			'这是一个比较长的开头句子，'
+		]);
+		expect(callSpeechParts(opening, 'paragraphs', false, clean)).toEqual([]);
+		expect(callSpeechParts(opening, 'none', false, clean)).toEqual([]);
+		// An ASCII pause waits for its separator, exactly like an ASCII sentence end.
+		const english = 'This opening clause is intentionally long enough to speak early,';
+		expect(callSpeechParts(english, 'punctuation', false, clean)).toEqual([]);
+		expect(callSpeechParts(english + ' then', 'punctuation', false, clean)).toEqual([english]);
 	});
 	it('honors paragraph and whole-reply preferences', () => {
 		expect(callSpeechParts('你好。再见。', 'paragraphs', false, clean)).toEqual([]);

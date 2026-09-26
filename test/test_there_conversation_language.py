@@ -38,6 +38,16 @@ class LanguageInferenceTests(unittest.TestCase):
             with self.subTest(query=query):
                 self.assertEqual(language.infer_reply_language(query), expected)
 
+    def test_simplified_only_markers_widen_chinese_without_catching_kanji_japanese(self):
+        for query in ('东京塔有多高？', '帮我查一下明天的天气', '明天几点开会', '这个报表怎么导出',
+                      '给我讲个故事', '北京到上海坐高铁要多长时间'):
+            with self.subTest(query=query):
+                self.assertEqual(language.infer_reply_language(query), 'zh')
+        for query in ('自己紹介', '東京大学入試日程', '東京都内会議室予約', '北京大学'):
+            with self.subTest(query=query):
+                self.assertIsNone(language.infer_reply_language(query))
+        self.assertEqual(language.infer_reply_language('東京タワーの高さは？'), 'ja')
+
     def test_explicit_output_target_is_left_to_policy_not_input_script(self):
         cases = [('请用英语回答，你是谁？', 'en'), ('请用日语介绍你自己。', 'ja'),
                  ('Please answer in Chinese.', 'zh'), ('Introduce yourself in Japanese.', 'ja'),

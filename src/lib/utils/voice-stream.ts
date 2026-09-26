@@ -30,11 +30,38 @@ function visibleSpeechText(content: string, final: boolean): string {
 		.replace(/\[[^\]]*$|\[[^\]]*\]$|\[[^\]]*\]\([^)]*$/g, '');
 }
 
+// The first spoken part may end at a clause pause once it carries enough words, so a long
+// opening sentence starts playing before the model has finished it. Later parts keep whole
+// sentences. Weight counts letters/digits only, so unfinished Markdown markers cannot move it.
+const CLAUSE_PAUSE_CJK = /[，、；：]/;
+const CLAUSE_PAUSE_ASCII = /[,;:]/;
+const CJK_TEXT = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u;
+export const FIRST_CLAUSE_MIN_CJK = 12;
+export const FIRST_CLAUSE_MIN_OTHER = 40;
+
+function spokenWeight(text: string): number {
+	return text.match(/[\p{L}\p{N}]/gu)?.length ?? 0;
+}
+
+function firstClauseReady(text: string, start: number, index: number): boolean {
+	const character = text[index];
+	const pause =
+		CLAUSE_PAUSE_CJK.test(character) ||
+		// "1,000" and "10:30" are not pauses; an ASCII pause needs a following separator.
+		(CLAUSE_PAUSE_ASCII.test(character) && /\s/.test(text[index + 1] ?? ''));
+	if (!pause) return false;
+	const clause = text.slice(start, index);
+	const minimum = CJK_TEXT.test(clause) ? FIRST_CLAUSE_MIN_CJK : FIRST_CLAUSE_MIN_OTHER;
+	return spokenWeight(clause) >= minimum;
+}
+
 /**
  * Return only ready sentences while streaming, and include the remaining tail at finish.
  * ASCII periods wait for a following separator so chunked decimals/URLs stay intact.
  * The cleaner must preserve separators; trim only each ready part, not the stream prefix.
  * No word/character minimum: Chinese and Japanese short sentences must start speaking.
+ * Every boundary depends only on the text before it (plus one following separator), so a
+ * streamed prefix always yields a prefix of the final parts.
  */
 export function callSpeechParts(
 	content: string,
@@ -53,7 +80,8 @@ export function callSpeechParts(
 			character === '\n' ||
 			(splitOn !== 'paragraphs' &&
 				(/[。！？]/.test(character) ||
-					(/[.!?]/.test(character) && /\s/.test(text[index + 1] ?? ''))));
+					(/[.!?]/.test(character) && /\s/.test(text[index + 1] ?? '')))) ||
+			(splitOn === 'punctuation' && parts.length === 0 && firstClauseReady(text, start, index));
 		if (!boundary) continue;
 		const part = text.slice(start, index + 1).trim();
 		if (part) parts.push(part);

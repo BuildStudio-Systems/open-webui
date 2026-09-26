@@ -49,6 +49,7 @@
 	export let codeInterpreterEnabled = false;
 
 	let largeScreen = false;
+	let mediaQueryInitialized = false;
 	let dragged = false;
 	let mounted = false;
 	let controlsWidth = 350;
@@ -119,22 +120,13 @@
 		selectedTerminalId.set(null);
 	}
 
-	const handleMediaQuery = async (e) => {
-		if (e.matches) {
-			largeScreen = true;
-			if ($showCallOverlay) {
-				showCallOverlay.set(false);
-				await tick();
-				showCallOverlay.set(true);
-			}
-		} else {
-			largeScreen = false;
-			if ($showCallOverlay) {
-				showCallOverlay.set(false);
-				await tick();
-				showCallOverlay.set(true);
-			}
-		}
+	const handleMediaQuery = (e: Pick<MediaQueryListEvent, 'matches'>) => {
+		const changed = mediaQueryInitialized && largeScreen !== e.matches;
+		largeScreen = e.matches;
+		mediaQueryInitialized = true;
+		// Layout replacement destroys the call instance and its mute state. End
+		// that call explicitly; only a new user gesture may open another one.
+		if (changed && $showCallOverlay) showCallOverlay.set(false);
 	};
 
 	const onMouseDown = () => {

@@ -1,6 +1,8 @@
 """Convert authorized engine chunks into THERE's existing chat citation format."""
 
+import asyncio
 import math
+from itertools import islice
 from fastapi import HTTPException
 from open_webui.there_integration.access import get_binding
 from open_webui.there_integration.weknora import WeKnoraClient
@@ -33,11 +35,28 @@ async def retrieve(resource_id, queries, count, user):
         raise HTTPException(401, '请登录后检索知识库。')
     binding, knowledge = await get_binding(resource_id, user)
     limit = min(max(int(count or 5), 1), 20)
-    records, seen = [], set()
-    for query in list(queries or [])[:3]:
+    normalized_queries = []
+    for query in islice(queries or [], 3):
         if not isinstance(query, str) or not query.strip():
             continue
-        envelope = await WeKnoraClient().search(binding.engine_id, query[:2000], limit=limit)
+        query = query[:2000]
+        if query not in normalized_queries:
+            normalized_queries.append(query)
+    # One already-authorized workspace, at most three independent searches.
+    # Preserve query order for stable score ties; never cache user results/ACLs.
+    tasks = [asyncio.create_task(WeKnoraClient().search(binding.engine_id, query, limit=limit))
+             for query in normalized_queries]
+    try:
+        envelopes = await asyncio.gather(*tasks)
+    finally:
+        # gather propagates the original error, but does not cancel siblings.
+        # Do not leave work running after a failed/cancelled chat request.
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+    records, seen = [], set()
+    for envelope in envelopes:
         data = envelope.get('data') or []
         if isinstance(data, dict):
             data = data.get('results') or data.get('items') or []

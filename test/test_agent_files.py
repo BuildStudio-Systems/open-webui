@@ -420,9 +420,20 @@ async def test_close_timeout_still_attempts_client_close(
     state = bound_download
     state.ownership.return_value = False
     state.response_close_wait = anyio.sleep_forever
-    monkeypatch.setattr(agent_files_module, "_DOWNLOAD_CLOSE_TIMEOUT_SECONDS", 0.01)
+    original_scope = anyio.move_on_after
+    cleanup_budgets = []
+
+    def independent_resource_scope(delay, *, shield):
+        cleanup_budgets.append((delay, shield))
+        # Cancel the blocked response at its first checkpoint. Keep the second
+        # resource's real budget, so scheduler jitter cannot falsely fail its
+        # separate cleanup opportunity.
+        return original_scope(0 if len(cleanup_budgets) == 1 else delay, shield=shield)
+
+    monkeypatch.setattr(agent_files_module.anyio, "move_on_after", independent_resource_scope)
     with pytest.raises(agent_files_module.HTTPException) as caught:
         await state.download()
     assert caught.value.status_code == 404
     assert not state.body_read
     assert state.client_closed
+    assert cleanup_budgets == [(5.0, True), (5.0, True)]

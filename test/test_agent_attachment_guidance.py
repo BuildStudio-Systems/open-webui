@@ -35,5 +35,14 @@ class AttachmentGuidanceTests(unittest.TestCase):
         for payload in [{},{'messages':None},{'messages':'not a list'}]:
             self.assertIs(module.with_agent_attachment_guidance(payload,'http://127.0.0.1:8642/v1',SimpleNamespace(role='admin',id='a1')),payload)
 
+    def test_pdf_policy_reaches_admin_requests_without_mutating_caller(self):
+        payload = {'messages':[{'role':'user','content':'Create a PDF'}]}
+        result = module.with_agent_attachment_guidance(payload, 'http://127.0.0.1:8642/v1', SimpleNamespace(id='a1',role='admin'))
+        policy = result['messages'][0]['content']
+        self.assertIn('/artifact-runtime/current/bin/there-pdf', policy)
+        self.assertIn('Do not hand-write PDF', policy)
+        self.assertIn('Do not repeatedly regenerate', policy)
+        self.assertEqual(len(payload['messages']), 1)
+
 if __name__ == '__main__':
     unittest.main()

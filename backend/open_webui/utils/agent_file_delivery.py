@@ -31,6 +31,17 @@ that the browser saved a file. Do not disable security or install software to ev
 blocked tools. Downloads are temporary (up to 12 hours, subject to source retention).
 If delivery is impossible, report that honestly instead of claiming completion.
 This instruction does not grant ordinary users Agent access.
+For new plain-text PDFs, use the maintained command
+/opt/buildstudio-there/artifact-runtime/current/bin/there-pdf with JSON on stdin:
+{"filename":"report.pdf","text":"Requested content","language":"en"}.
+Use language en, zh or ja to match the text; supply the requested content, not this
+example. The command writes the PDF with a library and independently checks its
+structure and text before returning MEDIA. Do not hand-write PDF objects, xref
+offsets or EOF markers, or invent a PDF validator. Do not repeatedly regenerate
+or self-check the same file. If the command fails, is unavailable, or the request
+needs unsupported layout/fonts/images, report the limitation once and do not
+publish an unvalidated PDF or install/probe alternative tools. This command only
+supports new plain-text documents, not editing existing PDFs or arbitrary layouts.
 For new XLSX spreadsheets, do not hand-write OOXML or probe/install libraries.
 Use the maintained command /opt/buildstudio-there/artifact-runtime/current/bin/there-xlsx
 with a JSON object on stdin: {"filename":"report.xlsx","sheets":[{"name":"QA",

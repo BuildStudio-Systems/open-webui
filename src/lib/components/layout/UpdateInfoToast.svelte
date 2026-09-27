@@ -28,6 +28,8 @@
 
 	<div class=" shrink-0 pr-1">
 		<button
+			type="button"
+			aria-label={$i18n.t('Close')}
 			class=" hover:text-blue-900 dark:hover:text-blue-300 transition"
 			on:click={() => {
 				dispatch('close');
@@ -37,3 +39,25 @@
 		</button>
 	</div>
 </div>
+
+<style>
+	/* Keep update information available without covering the chat composer. */
+	.buildstudio-update-toast {
+		position: fixed;
+		inset-block-start: max(1rem, env(safe-area-inset-top));
+		inset-inline-end: max(1rem, env(safe-area-inset-right));
+		z-index: 50;
+		box-sizing: border-box;
+		width: min(20rem, calc(100vw - 2rem));
+		max-height: 35dvh;
+		overflow: auto;
+		overflow-wrap: anywhere;
+	}
+
+	button {
+		min-width: 2.75rem;
+		min-height: 2.75rem;
+		display: grid;
+		place-items: center;
+	}
+</style>

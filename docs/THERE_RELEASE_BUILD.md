@@ -10,9 +10,15 @@ On a clean source checkout, using a verified Node 22 runtime:
 
 ```sh
 pnpm install --frozen-lockfile --ignore-scripts
+pnpm exec svelte-kit sync
 pnpm exec vitest run --config vitest.there.config.mjs --pool=forks --poolOptions.forks.singleFork
 pnpm run build
 ```
+
+Run `svelte-kit sync` explicitly before testing: `--ignore-scripts` deliberately
+skips install hooks, and a clean checkout has no generated `.svelte-kit/tsconfig.json`.
+The build's later preparation cannot repair a test command that already failed
+to collect. Require a nonzero collected test count and a successful test exit.
 
 The normal build prepares Pyodide assets. An offline release builder may reuse
 a separately hash-verified Pyodide cache and call Vite directly; it must record

@@ -33,8 +33,10 @@ previously declared dependencies matched that installation's pnpm lock. The
 initial release lock preserves its complete package and snapshot graph.
 
 Six CodeMirror packages and `@tiptap/extension-italic` were imported directly by
-application code but undeclared. A clean pnpm install correctly exposed the
-missing imports. They are now explicit dependencies at versions already present
+application code but undeclared. Vite also copied `onnxruntime-web` JavaScript
+and WASM assets without declaring that package directly. Clean pnpm builds
+exposed both missing imports and the missing asset path. All eight are now
+explicit dependencies at versions already present
 in the captured pnpm graph; no additional package or snapshot is introduced to
 that graph. The older loose npm-installed copies in the local cache are not a
 reproducible release source.
@@ -43,6 +45,8 @@ The npm lock was regenerated in an isolated Node 22 environment without install
 scripts. CodeMirror and TipTap peer-related lock changes are recorded separately
 from the canonical pnpm graph. The editor dependency tests exercise real
 CodeMirror state/extension composition, alongside the existing THERE tests.
+The release dependency contract also checks all eight direct declarations and
+the ONNX JavaScript/WASM files required by Vite's static-copy target.
 
 Do not copy credentials, user configuration, production environment files, or
 application databases into a build workspace. Shared-host builds require memory,

@@ -332,6 +332,9 @@ importers:
       '@tiptap/extension-italic':
         specifier: 3.31.3
         version: 3.31.3(@tiptap/core@3.31.3(@tiptap/pm@3.31.3))
+      onnxruntime-web:
+        specifier: 1.22.0-dev.20250409-89f8206ba4
+        version: 1.22.0-dev.20250409-89f8206ba4
     devDependencies:
       '@sveltejs/adapter-auto':
         specifier: 3.2.2

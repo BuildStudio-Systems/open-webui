@@ -654,6 +654,10 @@
 					if (content === undefined) continue;
 					const audio = await fetchAudio(content, signal);
 					if (!callActive() || signal.aborted || currentMessageId !== id) break;
+					// The cache owns waiting audio, not the currently playing segment. Taking it now
+					// lets an identical next sentence prefetch independently; a late old playback
+					// must never delete a newer reply's entry with the same text.
+					audioCache.delete(content);
 					emoji = emojiCache.get(content) ?? null;
 					// At most one look-ahead synthesis; never fan out every streamed sentence.
 					if (messages[id]?.length) void fetchAudio(messages[id][0], signal);
@@ -669,7 +673,6 @@
 						if (audio !== true && audio.src.startsWith('blob:')) URL.revokeObjectURL(audio.src);
 					}
 					// A failed segment is skipped after a visible error, not requeued forever.
-					audioCache.delete(content);
 				} else if (finishedMessages[id]) break;
 				else await waitForPlaybackWork();
 			}

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import os
+import ssl
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import anyio
 import httpx
 import pytest
+from starlette.requests import ClientDisconnect
 
 
 @pytest.fixture(scope="module")
@@ -78,7 +80,9 @@ async def test_download_proxy_forwards_range_and_response_headers(agent_files_mo
 
     class FakeClient:
         def __init__(self, **_kwargs):
-            pass
+            assert _kwargs["verify"] is agent_files_module._TLS_CONTEXT
+            assert _kwargs["verify"].verify_mode == ssl.CERT_REQUIRED
+            assert _kwargs["verify"].check_hostname is True
 
         def build_request(self, method, url, headers):
             captured.update(method=method, url=url, request_headers=headers)
@@ -270,6 +274,7 @@ def bound_download(agent_files_module, monkeypatch):
     """Synthetic response only: no network, user data, or physical artifact."""
     state = SimpleNamespace(
         response_closed=False, client_closed=False, body_read=False,
+        response_close_count=0, client_close_count=0,
         chat_id="c66d52ba-ae53-44c5-8ed0-56b19992cab0", status_code=200,
         headers={}, response_close_wait=None,
     )
@@ -292,6 +297,7 @@ def bound_download(agent_files_module, monkeypatch):
             yield b"synthetic artifact"
 
         async def aclose(self):
+            state.response_close_count += 1
             if state.response_close_wait is not None:
                 await state.response_close_wait()
             await anyio.sleep(0)
@@ -310,6 +316,7 @@ def bound_download(agent_files_module, monkeypatch):
             return FakeResponse()
 
         async def aclose(self):
+            state.client_close_count += 1
             await anyio.sleep(0)
             state.client_closed = True
 
@@ -437,3 +444,75 @@ async def test_close_timeout_still_attempts_client_close(
     assert not state.body_read
     assert state.client_closed
     assert cleanup_budgets == [(5.0, True), (5.0, True)]
+
+
+@pytest.mark.asyncio
+async def test_header_disconnect_before_body_closes_agent_upstream(bound_download):
+    state = bound_download
+    response = await state.download()
+
+    async def disconnected_send(_message):
+        raise OSError("synthetic disconnected browser")
+
+    async def receive():
+        return {"type": "http.disconnect"}
+
+    with pytest.raises(ClientDisconnect):
+        await response({"type": "http", "asgi": {"spec_version": "2.4"}}, receive, disconnected_send)
+    assert state.response_closed and state.client_closed
+    assert not state.body_read
+
+
+@pytest.mark.asyncio
+async def test_header_cancel_before_body_shields_agent_upstream_cleanup(bound_download):
+    state = bound_download
+    response = await state.download()
+
+    with anyio.CancelScope() as scope:
+        async def cancelled_send(_message):
+            scope.cancel()
+            await anyio.sleep(0)
+
+        async def receive():
+            return {"type": "http.disconnect"}
+
+        await response({"type": "http", "asgi": {"spec_version": "2.4"}}, receive, cancelled_send)
+    assert state.response_closed and state.client_closed
+    assert not state.body_read
+
+
+@pytest.mark.asyncio
+async def test_successful_asgi_download_closes_each_resource_once(bound_download):
+    state = bound_download
+    response = await state.download()
+    sent = []
+
+    async def send(message):
+        sent.append(message)
+
+    async def receive():
+        return {"type": "http.disconnect"}
+
+    await response({"type": "http", "asgi": {"spec_version": "2.4"}}, receive, send)
+    assert b"".join(m.get("body", b"") for m in sent) == b"synthetic artifact"
+    assert state.response_closed and state.client_closed
+    assert state.response_close_count == state.client_close_count == 1
+
+
+@pytest.mark.asyncio
+async def test_body_disconnect_closes_each_resource_once(bound_download):
+    state = bound_download
+    response = await state.download()
+
+    async def send(message):
+        if message["type"] == "http.response.body":
+            raise OSError("synthetic mid-download disconnect")
+
+    async def receive():
+        return {"type": "http.disconnect"}
+
+    with pytest.raises(ClientDisconnect):
+        await response({"type": "http", "asgi": {"spec_version": "2.4"}}, receive, send)
+    await response.body_iterator.aclose()
+    assert state.body_read and state.response_closed and state.client_closed
+    assert state.response_close_count == state.client_close_count == 1

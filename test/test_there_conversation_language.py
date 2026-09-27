@@ -48,6 +48,16 @@ class LanguageInferenceTests(unittest.TestCase):
                 self.assertIsNone(language.infer_reply_language(query))
         self.assertEqual(language.infer_reply_language('東京タワーの高さは？'), 'ja')
 
+    def test_shared_han_characters_alone_do_not_force_chinese(self):
+        # These short strings provide no unambiguous Chinese script signal.
+        # Leave the language to the model instead of switching a Japanese turn.
+        for query in ('回答一覧', '利用案内', '体系図', '我慢', '什器一覧'):
+            with self.subTest(query=query):
+                self.assertIsNone(language.infer_reply_language(query))
+        for query in ('请列出回答', '这个怎么用', '我想问一下', '系统是什么'):
+            with self.subTest(query=query):
+                self.assertEqual(language.infer_reply_language(query), 'zh')
+
     def test_explicit_output_target_is_left_to_policy_not_input_script(self):
         cases = [('请用英语回答，你是谁？', 'en'), ('请用日语介绍你自己。', 'ja'),
                  ('Please answer in Chinese.', 'zh'), ('Introduce yourself in Japanese.', 'ja'),

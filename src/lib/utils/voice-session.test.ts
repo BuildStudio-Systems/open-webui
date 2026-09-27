@@ -283,6 +283,37 @@ describe('real CallOverlay script with synthetic browser/audio', () => {
 		]);
 		api.endCall();
 	});
+	it('prefetches a repeated sentence without reusing or discarding the currently playing audio', async () => {
+		vi.useFakeTimers();
+		const { api, deps, audioElement } = overlay();
+		audioElement.play = vi.fn(async () => {});
+		vi.mocked(URL.createObjectURL)
+			.mockReturnValueOnce('blob:first-sentence')
+			.mockReturnValueOnce('blob:repeated-sentence');
+		api.chatStartHandler({ detail: { id: 'reply' } });
+		api.chatEventHandler({ detail: { id: 'reply', content: '好的。' } });
+		await vi.advanceTimersByTimeAsync(0);
+		expect(audioElement.src).toBe('blob:first-sentence');
+		api.chatEventHandler({ detail: { id: 'reply', content: '好的。' } });
+		api.chatFinishHandler({ detail: { id: 'reply' } });
+		await vi.advanceTimersByTimeAsync(0);
+		expect(deps.synthesizeOpenAISpeech).toHaveBeenCalledTimes(2);
+		expect(URL.revokeObjectURL).not.toHaveBeenCalled();
+		audioElement.onended();
+		await vi.advanceTimersByTimeAsync(0);
+		expect(audioElement.play).toHaveBeenCalledTimes(2);
+		expect(audioElement.src).toBe('blob:repeated-sentence');
+		expect(deps.synthesizeOpenAISpeech).toHaveBeenCalledTimes(2);
+		expect(vi.mocked(URL.revokeObjectURL).mock.calls).toEqual([['blob:first-sentence']]);
+		audioElement.onended();
+		await vi.advanceTimersByTimeAsync(0);
+		expect(vi.mocked(URL.revokeObjectURL).mock.calls).toEqual([
+			['blob:first-sentence'],
+			['blob:repeated-sentence']
+		]);
+		expect(api.state().assistantSpeaking).toBe(false);
+		api.endCall();
+	});
 	it.each([
 		['你好。', 'zh-CN', undefined],
 		['こんにちは。', 'ja-JP', undefined],

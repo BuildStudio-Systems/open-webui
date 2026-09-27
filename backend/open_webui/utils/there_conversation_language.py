@@ -22,12 +22,11 @@ _ENGLISH_WORDS = frozenset(
     'use tools short sentence this that it code phrase without'.split()
 )
 _NEUTRAL = frozenset(('ok', 'okay', 'yes', 'no', 'thanks', '好的', '收到', '谢谢', 'はい', '了解'))
-# Kana-free Han text is Chinese only with a Chinese marker. The original words stay; the
-# additions are Simplified-only forms (Japanese writes 這 們 個 嗎 給 東 時 間 見 買 書 図
-# 様 種 対 開 関 長 実 発 進 過 現 還 辺 該 譲 従 応 幇 講 誰 請 題 語 説 為 馬 門 車 売 …), so
-# kanji-only Japanese such as 自己紹介 or 東京大学入試日程 still gets no hint.
+# Kana-free Han text needs a Chinese script/particle signal, not merely a shared
+# character such as 回, 答, 用, 我, 系 or 什. Ambiguous short kanji-only queries
+# stay unhinted; this is a conservative heuristic, not a complete language detector.
 _CHINESE_MARKERS = re.compile(
-    r'[请这什谁怎为用说我你泽语系统回答问题'
+    r'[请这谁怎为说你泽语统问题'
     r'们个吗呢吧么哪啊嘛给帮讲东时间现过对开关长实发进还边样种该让从应'
     r'马门见车买卖书图]'
 )

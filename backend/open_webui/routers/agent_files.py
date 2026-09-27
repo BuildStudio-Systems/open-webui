@@ -7,6 +7,7 @@ import anyio
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response, StreamingResponse
+from starlette.background import BackgroundTask
 
 from open_webui.models.chats import Chats
 from open_webui.routers.openai import get_openai_runtime_config
@@ -26,6 +27,17 @@ _DOWNLOAD_LIMITS = httpx.Limits(max_connections=50, max_keepalive_connections=10
 # Same verification as httpx's per-client default, built once instead of per download.
 _TLS_CONTEXT = httpx.create_ssl_context()
 _DOWNLOAD_CLOSE_TIMEOUT_SECONDS = 5.0
+
+
+class _AgentStreamingResponse(StreamingResponse):
+    async def __call__(self, scope, receive, send) -> None:
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            # Header failure/disconnect can happen before the iterator starts,
+            # so its finally block alone cannot own the upstream connection.
+            if self.background is not None:
+                await self.background()
 
 
 async def _close_download_resource(resource) -> None:
@@ -113,7 +125,13 @@ async def download_agent_file(
         await _close_download_resource(client)
         raise
 
+    closed = False
+
     async def close() -> None:
+        nonlocal closed
+        if closed:
+            return
+        closed = True
         try:
             await _close_download_resource(response)
         finally:
@@ -149,11 +167,12 @@ async def download_agent_file(
         finally:
             await close()
 
-    return StreamingResponse(
+    return _AgentStreamingResponse(
         stream(),
         status_code=response.status_code,
         # Keeping this route octet-stream also prevents the global response
         # compressor from corrupting byte ranges for text-like artifacts.
         media_type="application/octet-stream",
         headers=_download_headers(response),
+        background=BackgroundTask(close),
     )

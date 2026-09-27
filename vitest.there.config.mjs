@@ -5,6 +5,7 @@ export default {
 	test: {
 		environment: 'node',
 		include: [
+			'src/lib/utils/editor-dependency-graph.test.ts',
 			'src/lib/apis/audio/*.test.ts',
 			'src/lib/utils/voice-session.test.ts',
 			'src/lib/utils/voice-stream.test.ts',

@@ -82,6 +82,7 @@ async def get_task_model_generation_config(default_model_id: str, models) -> tup
         'task.model.default',
         'task.model.external',
         'task.model.params',
+        'openai.api_base_urls',
     )
     params = config.get('task.model.params') or {}
     if not isinstance(params, dict):
@@ -93,6 +94,7 @@ async def get_task_model_generation_config(default_model_id: str, models) -> tup
             config.get('task.model.default'),
             config.get('task.model.external'),
             models,
+            config.get('openai.api_base_urls'),
         ),
         {key: value for key, value in params.items() if value is not None and value != ''},
     )

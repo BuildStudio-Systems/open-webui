@@ -28,6 +28,37 @@ SPOOFED = {
 
 
 class BindingTests(IsolatedAsyncioTestCase):
+    async def test_auxiliary_tasks_never_enter_agent_even_without_saved_chat(self):
+        for task in ('title_generation', 'TASKS.TITLE_GENERATION', 'query_generation',
+                     'tags_generation', 'follow_up_generation', 'future_task'):
+            for chat_id in (CHAT, None, 'temporary:socket'):
+                with self.subTest(task=task, chat_id=chat_id):
+                    ownership = AsyncMock(return_value=True)
+                    with self.assertRaises(binding.AgentChatBindingError):
+                        await binding.bind_agent_request_headers(
+                            SPOOFED, URL, ADMIN,
+                            {'task': task, 'chat_id': chat_id}, ownership,
+                        )
+                    ownership.assert_not_awaited()
+
+    async def test_auxiliary_guard_does_not_affect_inference_provider(self):
+        ownership = AsyncMock()
+        result = await binding.bind_agent_request_headers(
+            SPOOFED, 'http://127.0.0.1:8000/v1', ADMIN,
+            {'task': 'title_generation', 'chat_id': CHAT}, ownership,
+        )
+        self.assertIs(result, SPOOFED)
+        ownership.assert_not_awaited()
+
+    async def test_regular_chat_with_empty_task_keeps_binding(self):
+        for task in (None, ''):
+            ownership = AsyncMock(return_value=True)
+            result = await binding.bind_agent_request_headers(
+                SPOOFED, URL, ADMIN, {'task': task, 'chat_id': CHAT}, ownership,
+            )
+            self.assertEqual(result[binding.AGENT_CHAT_HEADER], CHAT)
+            ownership.assert_awaited_once_with(CHAT, ADMIN.id)
+
     async def test_owned_saved_chat_uses_authenticated_principal_and_keeps_input(self):
         ownership = AsyncMock(return_value=True)
         metadata = {'chat_id': CHAT, 'user_id': 'spoofed-owner', 'session_id': 'untrusted'}
@@ -110,6 +141,92 @@ class BindingTests(IsolatedAsyncioTestCase):
                     await binding.bind_agent_request_headers({}, URL, ADMIN, metadata, AsyncMock())
 
 
+class TaskRoutingTests(IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.urls = ['http://127.0.0.1:8000/v1', URL, 'https://provider.example/v1']
+        self.models = {
+            'inference': {'owned_by': 'openai', 'urlIdx': 0},
+            'agent': {'owned_by': 'openai', 'urlIdx': 1},
+            'agent-preset': {'owned_by': 'openai', 'preset': True,
+                             'info': {'base_model_id': 'agent'}},
+            'external': {'owned_by': 'openai', 'urlIdx': 2},
+        }
+
+    def test_agent_and_presets_resolve_to_registered_inference(self):
+        for model in ('agent', 'agent-preset'):
+            self.assertEqual(binding.task_inference_fallback(model, self.models, self.urls), 'inference')
+        self.assertEqual(self.models['agent-preset']['info']['base_model_id'], 'agent')
+
+    def test_explicit_non_agent_models_are_preserved(self):
+        for model in ('inference', 'external', 'missing'):
+            self.assertEqual(binding.task_inference_fallback(model, self.models, self.urls), model)
+
+    def test_no_arbitrary_fallback_for_ambiguous_or_missing_inference(self):
+        del self.models['inference']
+        self.assertEqual(binding.task_inference_fallback('agent', self.models, self.urls), 'agent')
+        for name in ('inference-a', 'inference-b'):
+            self.models[name] = {'owned_by': 'openai', 'urlIdx': 0}
+        self.assertEqual(binding.task_inference_fallback('agent', self.models, self.urls), 'agent')
+
+    def test_presets_do_not_duplicate_one_base_inference_candidate(self):
+        self.models['named-inference'] = {'owned_by': 'openai', 'preset': True,
+                                         'info': {'base_model_id': 'inference'}}
+        self.assertEqual(binding.task_inference_fallback('agent', self.models, self.urls), 'inference')
+
+    def test_lookalike_endpoints_and_pipe_models_never_selected(self):
+        for url in ('http://external.example:8000/v1', 'http://user@localhost:8000/v1',
+                    'http://localhost:8000/v1?other=1', 'http://localhost:8000/else',
+                    'http://localhost:invalid/v1'):
+            with self.subTest(url=url):
+                self.assertEqual(binding.task_inference_fallback('agent', self.models, [url, URL]), 'agent')
+        self.models['inference']['pipe'] = {'type': 'pipe'}
+        self.assertEqual(binding.task_inference_fallback('agent', self.models, self.urls), 'agent')
+
+    def test_bad_indexes_cycles_and_missing_config_do_not_guess(self):
+        for index in (-1, True, '1', 999):
+            self.models['agent']['urlIdx'] = index
+            self.assertEqual(binding.task_inference_fallback('agent', self.models, self.urls), 'agent')
+        self.models['agent']['info'] = {'base_model_id': 'agent-preset'}
+        self.assertEqual(binding.task_inference_fallback('agent-preset', self.models, self.urls), 'agent-preset')
+        self.assertEqual(binding.task_inference_fallback('agent', self.models, None), 'agent')
+
+    async def test_missing_fallback_is_still_rejected_at_final_agent_boundary(self):
+        del self.models['inference']
+        chosen = binding.task_inference_fallback('agent', self.models, self.urls)
+        ownership = AsyncMock()
+        with self.assertRaises(binding.AgentChatBindingError):
+            await binding.bind_agent_request_headers(
+                {}, self.urls[self.models[chosen]['urlIdx']], ADMIN,
+                {'task': 'title_generation', 'chat_id': CHAT}, ownership,
+            )
+        ownership.assert_not_awaited()
+
+    async def test_actual_task_config_resolver_routes_agent_and_keeps_parameters(self):
+        # Execute the actual resolver bodies with only the configuration I/O
+        # injected; do not import the application's database/startup side effects.
+        namespace = {'task_inference_fallback': binding.task_inference_fallback}
+        for path, name in (('utils/task.py', 'get_task_model_id'),
+                           ('routers/tasks.py', 'get_task_model_generation_config')):
+            tree = ast.parse((BACKEND / path).read_text(encoding='utf-8'))
+            function = next(node for node in tree.body
+                            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                            and node.name == name)
+            exec(compile(ast.Module(body=[function], type_ignores=[]), '<task resolver>', 'exec'), namespace)
+        for configured, expected in ((None, 'inference'), ('agent-preset', 'inference'),
+                                     ('external', 'external')):
+            with self.subTest(configured=configured):
+                get_many = AsyncMock(return_value={
+                    'task.model.external': configured,
+                    'task.model.params': {'temperature': 0, 'max_tokens': 80, 'unused': None},
+                    'openai.api_base_urls': self.urls,
+                })
+                namespace['Config'] = SimpleNamespace(get_many=get_many)
+                selected, params = await namespace['get_task_model_generation_config']('agent-preset', self.models)
+                self.assertEqual(selected, expected)
+                self.assertEqual(params, {'temperature': 0, 'max_tokens': 80})
+                self.assertIn('openai.api_base_urls', get_many.await_args.args)
+
+
 class RouterHeaderTests(IsolatedAsyncioTestCase):
     """Execute the actual router function with only its I/O dependencies injected."""
 
@@ -158,6 +275,15 @@ class RouterHeaderTests(IsolatedAsyncioTestCase):
             await self.handler(self.request, URL, config={}, metadata={'chat_id': CHAT}, user=ADMIN)
         self.assertEqual(caught.exception.status_code, 403)
         self.assertEqual(caught.exception.detail, 'Agent chat is unavailable')
+
+    async def test_actual_router_rejects_auxiliary_agent_before_upstream(self):
+        with self.assertRaises(self.error_type) as caught:
+            await self.handler(
+                self.request, URL, config={},
+                metadata={'task': 'TASKS.TITLE_GENERATION', 'chat_id': CHAT}, user=ADMIN,
+            )
+        self.assertEqual(caught.exception.status_code, 403)
+        self.ownership.assert_not_awaited()
 
     async def test_actual_router_does_not_change_external_session_headers(self):
         headers, _ = await self.handler(

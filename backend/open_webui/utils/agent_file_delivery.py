@@ -94,6 +94,54 @@ def is_local_hermes_url(url: Any) -> bool:
         return False
 
 
+def task_inference_fallback(model_id: str, models: Any, api_base_urls: Any) -> str:
+    """Keep auxiliary tasks off THERE's tool-running Agent connection.
+
+    Resolve presets from the server catalog, never display names or model-name
+    substrings. Only the single registered loopback inference model is an
+    automatic fallback; ambiguous/missing routes are rejected by the final
+    Agent request guard instead of silently choosing an external provider.
+    Normal model access checks still apply to the returned model.
+    """
+    if not isinstance(api_base_urls, (list, tuple)):
+        return model_id
+
+    def connection(candidate):
+        visited = set()
+        while isinstance(candidate, str) and candidate not in visited:
+            visited.add(candidate)
+            model = models.get(candidate) or {}
+            if model.get('pipe') or model.get('owned_by') != 'openai':
+                return None
+            base = (model.get('info') or {}).get('base_model_id')
+            if base:
+                candidate = base
+                continue
+            index = model.get('urlIdx')
+            if type(index) is int and 0 <= index < len(api_base_urls):
+                return api_base_urls[index]
+            return None
+        return None
+
+    if not is_local_hermes_url(connection(model_id)):
+        return model_id
+    candidates = []
+    for candidate, model in models.items():
+        if model.get('preset') or (model.get('info') or {}).get('base_model_id'):
+            continue
+        url = connection(candidate)
+        try:
+            parsed = urlsplit(str(url or ''))
+            if (parsed.scheme in {'http', 'https'} and parsed.hostname in _LOOPBACK_HOSTS
+                    and parsed.port == 8000 and parsed.path.rstrip('/') == '/v1'
+                    and parsed.username is None and parsed.password is None
+                    and not parsed.query and not parsed.fragment):
+                candidates.append(candidate)
+        except ValueError:
+            continue
+    return candidates[0] if len(candidates) == 1 else model_id
+
+
 def file_owner_headers(user: Any) -> dict[str, str]:
     """Return the trusted owner header for an administrator only.
 
@@ -144,6 +192,12 @@ async def bind_agent_request_headers(
     """
     if not is_local_hermes_url(url):
         return headers
+
+    # Title/query/tag prompts contain quoted user requests. They are text-only
+    # auxiliary work, not authority to execute those requests or join the saved
+    # chat's Agent turn lock. A misconfigured task model must fail before I/O.
+    if isinstance(metadata, dict) and metadata.get('task'):
+        raise AgentChatBindingError('Agent chat is unavailable')
 
     bound = {key: value for key, value in headers.items()
              if key.lower() not in _RESERVED_AGENT_HEADERS}

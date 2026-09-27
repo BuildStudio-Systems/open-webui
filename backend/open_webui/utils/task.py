@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Any, Optional
 
 from open_webui.config import DEFAULT_RAG_TEMPLATE
+from open_webui.utils.agent_file_delivery import task_inference_fallback
 from open_webui.utils.misc import get_last_user_message, get_messages_content
 
 log = logging.getLogger(__name__)
@@ -13,7 +14,7 @@ log = logging.getLogger(__name__)
 
 # Let the right tool be given for the work at hand,
 # not the one that flatters, but the one that serves.
-def get_task_model_id(default_model_id: str, task_model: str, task_model_external: str, models) -> str:
+def get_task_model_id(default_model_id: str, task_model: str, task_model_external: str, models, api_base_urls=()) -> str:
     # Set the task model
     task_model_id = default_model_id
     # Check if the user has a custom task model and use that model
@@ -24,7 +25,7 @@ def get_task_model_id(default_model_id: str, task_model: str, task_model_externa
         if task_model_external and task_model_external in models:
             task_model_id = task_model_external
 
-    return task_model_id
+    return task_inference_fallback(task_model_id, models, api_base_urls)
 
 
 def prompt_variables_template(template: str, variables: dict[str, str]) -> str:

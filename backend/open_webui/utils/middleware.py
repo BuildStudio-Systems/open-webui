@@ -1388,12 +1388,14 @@ async def chat_completion_tools_handler(
         'task.model.default',
         'task.model.external',
         'task.tools.prompt_template',
+        'openai.api_base_urls',
     )
     task_model_id = get_task_model_id(
         body['model'],
         task_config.get('task.model.default'),
         task_config.get('task.model.external'),
         models,
+        task_config.get('openai.api_base_urls'),
     )
 
     skip_files = False
@@ -2595,6 +2597,7 @@ async def process_chat_payload(request, form_data, user, metadata, model):
         await Config.get('task.model.default'),
         await Config.get('task.model.external'),
         models,
+        await Config.get('openai.api_base_urls'),
     )
 
     events = []

@@ -4,6 +4,7 @@ import html
 import re
 from contextlib import asynccontextmanager
 from sqlalchemy import select
+from sqlalchemy.orm import load_only
 from open_webui.internal.db import get_async_db_context
 from open_webui.models.access_grants import AccessGrant
 from open_webui.models.chats import Chat
@@ -143,7 +144,11 @@ async def personal_sources(user, chat_id, query, *, db=None):
     if not chat_id or not terms:
         return []
     async with personal_session(db) as session:
-        chat = await session.scalar(select(Chat).where(Chat.id == chat_id, Chat.user_id == user.id))
+        # The destination gate needs metadata, not its potentially large JSON
+        # transcript. Do not transfer/decode that transcript before retrieval.
+        chat = await session.scalar(select(Chat).options(load_only(
+            Chat.id, Chat.share_id, Chat.meta, Chat.timer_at, raiseload=True,
+        )).where(Chat.id == chat_id, Chat.user_id == user.id))
         if not chat or chat.share_id or (chat.meta or {}).get('internal') or chat.timer_at:
             return []
         shared = await session.scalar(select(AccessGrant.id).where(

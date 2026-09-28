@@ -77,6 +77,11 @@ async def _ws_get_images(ws, workflow, client_id, base_url, api_key):
     async for msg in ws:
         if msg.type == aiohttp.WSMsgType.TEXT:
             message = JSONCodec.loads(msg.data)
+            if message.get('type') in ('execution_error', 'execution_interrupted'):
+                if message.get('data', {}).get('prompt_id') == prompt_id:
+                    # Do not wait for an executing/node=None event after a
+                    # terminal failure, or expose upstream paths/tracebacks.
+                    raise RuntimeError('ComfyUI image generation failed or was interrupted')
             if message['type'] == 'executing':
                 data = message['data']
                 if data['node'] is None and data['prompt_id'] == prompt_id:

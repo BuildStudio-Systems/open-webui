@@ -42,6 +42,7 @@ from open_webui.utils.images.comfyui import (
     comfyui_upload_image,
 )
 from open_webui.utils.json_codec import JSONCodec
+from open_webui.utils.images.prefetch import prefetch_images
 from open_webui.utils.session_pool import get_session
 from PIL import Image, ImageOps
 from pydantic import BaseModel
@@ -664,17 +665,19 @@ async def image_generations(
 
             images = []
 
-            for image in res['data']:
+            async def load_generated_image(image):
                 if image_url := image.get('url', None):
-                    image_data, content_type = await get_image_data(
+                    return await get_image_data(
                         image_url,
                         {k: v for k, v in headers.items() if k != 'Content-Type'},
                     )
                 else:
-                    image_data, content_type = await get_image_data(image['b64_json'])
+                    return await get_image_data(image['b64_json'])
 
-                _, image_file = await upload_image(request, image_data, content_type, {**data, **metadata}, user)
-                images.append(image_file)
+            async with prefetch_images(res['data'], load_generated_image) as results:
+                async for image_data, content_type in results:
+                    _, image_file = await upload_image(request, image_data, content_type, {**data, **metadata}, user)
+                    images.append(image_file)
             return images
 
         elif image_config.IMAGE_GENERATION_ENGINE == 'gemini':
@@ -771,24 +774,26 @@ async def image_generations(
 
             images = []
 
-            for image in res['data']:
+            async def load_generated_image(image):
                 headers = None
                 if image_config.COMFYUI_API_KEY:
                     headers = {'Authorization': f'Bearer {image_config.COMFYUI_API_KEY}'}
 
-                image_data, content_type = await get_image_data(
+                return await get_image_data(
                     image['url'],
                     headers,
                     trusted_base_url=image_config.COMFYUI_BASE_URL,
                 )
-                _, image_file = await upload_image(
-                    request,
-                    image_data,
-                    content_type,
-                    {**form_data.model_dump(exclude_none=True), **metadata},
-                    user,
-                )
-                images.append(image_file)
+            async with prefetch_images(res['data'], load_generated_image) as results:
+                async for image_data, content_type in results:
+                    _, image_file = await upload_image(
+                        request,
+                        image_data,
+                        content_type,
+                        {**form_data.model_dump(exclude_none=True), **metadata},
+                        user,
+                    )
+                    images.append(image_file)
             return images
         elif image_config.IMAGE_GENERATION_ENGINE == 'automatic1111' or image_config.IMAGE_GENERATION_ENGINE == '':
             # Automatic1111 holds one checkpoint instance-wide, so set_image_model
@@ -1163,10 +1168,7 @@ async def image_edits(
             )
             log.debug('res: %s', res)
 
-            image_urls = set()
-            for image in res['data']:
-                image_urls.add(image['url'])
-            image_urls = list(image_urls)
+            image_urls = list(dict.fromkeys(image['url'] for image in res['data']))
 
             # Prioritize output type URLs if available
             output_type_urls = [url for url in image_urls if 'type=output' in url]
@@ -1176,24 +1178,26 @@ async def image_edits(
             log.debug('Image URLs: %s', image_urls)
             images = []
 
-            for image_url in image_urls:
+            async def load_generated_image(image_url):
                 headers = None
                 if image_config.IMAGES_EDIT_COMFYUI_API_KEY:
                     headers = {'Authorization': f'Bearer {image_config.IMAGES_EDIT_COMFYUI_API_KEY}'}
 
-                image_data, content_type = await get_image_data(
+                return await get_image_data(
                     image_url,
                     headers,
                     trusted_base_url=image_config.IMAGES_EDIT_COMFYUI_BASE_URL,
                 )
-                _, image_file = await upload_image(
-                    request,
-                    image_data,
-                    content_type,
-                    {**form_data.model_dump(exclude_none=True), **metadata},
-                    user,
-                )
-                images.append(image_file)
+            async with prefetch_images(image_urls, load_generated_image) as results:
+                async for image_data, content_type in results:
+                    _, image_file = await upload_image(
+                        request,
+                        image_data,
+                        content_type,
+                        {**form_data.model_dump(exclude_none=True), **metadata},
+                        user,
+                    )
+                    images.append(image_file)
 
             return images
     except Exception as e:

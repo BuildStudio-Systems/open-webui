@@ -5,6 +5,7 @@ import hmac
 import json
 from pathlib import Path
 import time
+import uuid
 
 CONFIG = Path('/etc/buildstudio-there/device-control-web.json')
 HEADER = 'X-BuildStudio-Device-Capability'
@@ -33,6 +34,7 @@ def capability(user, scope, *, chat='', job='', digest='', config_path=None):
         raise ValueError('Device control configuration is invalid')
     now = int(time.time())
     claims = {'aud': 'there-device-control-v1', 'owner': str(user.id), 'scope': scope,
+              'jti': uuid.uuid4().hex,
               'chat': chat, 'iat': now, 'exp': now + (900 if scope == 'agent' else 60),
               'job': job, 'digest': digest}
     body = base64.urlsafe_b64encode(json.dumps(claims, sort_keys=True, separators=(',', ':')).encode()).decode().rstrip('=')

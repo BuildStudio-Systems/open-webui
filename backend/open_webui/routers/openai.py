@@ -226,8 +226,10 @@ async def get_headers_and_cookies(
     # Run after custom-header expansion: ownership and saved-chat execution
     # namespaces are server authority, never configurable continuation handles.
     try:
+        from open_webui.utils.device_control import session_from_request
         headers = await bind_agent_request_headers(
-            headers, url, user, metadata, Chats.is_chat_owner
+            headers, url, user, metadata, Chats.is_chat_owner,
+            session_token=session_from_request(request),
         )
     except AgentChatBindingError:
         raise HTTPException(status_code=403, detail='Agent chat is unavailable') from None

@@ -3,7 +3,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from open_webui.utils.auth import get_admin_user
-from open_webui.utils.device_control import control_request, explicit_session_header
+from open_webui.utils.device_control import control_request, explicit_session_header, session_from_request
 
 router = APIRouter()
 
@@ -13,18 +13,18 @@ class Approval(BaseModel):
 
 
 @router.get('/devices')
-async def devices(user=Depends(get_admin_user)):
-    return JSONResponse(await control_request(user, {'action': 'list'}), headers={'Cache-Control': 'no-store'})
+async def devices(request: Request, user=Depends(get_admin_user)):
+    return JSONResponse(await control_request(user, {'action': 'list'}, session_token=session_from_request(request)), headers={'Cache-Control': 'no-store'})
 
 
 @router.get('/jobs')
-async def jobs(user=Depends(get_admin_user)):
-    return JSONResponse(await control_request(user, {'action': 'jobs'}), headers={'Cache-Control': 'no-store'})
+async def jobs(request: Request, user=Depends(get_admin_user)):
+    return JSONResponse(await control_request(user, {'action': 'jobs'}, session_token=session_from_request(request)), headers={'Cache-Control': 'no-store'})
 
 
 @router.get('/jobs/{job_id}')
-async def job(job_id: str, user=Depends(get_admin_user)):
-    return JSONResponse(await control_request(user, {'action': 'job', 'job': job_id}), headers={'Cache-Control': 'no-store'})
+async def job(job_id: str, request: Request, user=Depends(get_admin_user)):
+    return JSONResponse(await control_request(user, {'action': 'job', 'job': job_id}, session_token=session_from_request(request)), headers={'Cache-Control': 'no-store'})
 
 
 @router.post('/jobs/{job_id}/approve')
@@ -32,14 +32,14 @@ async def approve(job_id: str, body: Approval, request: Request, user=Depends(ge
     # Bearer only: cross-site forms and ambient cookies cannot approve an operation.
     if not explicit_session_header(request.headers.get('authorization')):
         raise HTTPException(403, 'Explicit authenticated approval required.')
-    return await control_request(user, {'action': 'approve', 'job': job_id, 'digest': body.digest}, approve=True)
+    return await control_request(user, {'action': 'approve', 'job': job_id, 'digest': body.digest}, session_token=session_from_request(request), approve=True)
 
 
 @router.post('/jobs/{job_id}/cancel')
 async def cancel(job_id: str, request: Request, user=Depends(get_admin_user)):
     if not explicit_session_header(request.headers.get('authorization')):
         raise HTTPException(403, 'Explicit authenticated action required.')
-    return await control_request(user, {'action': 'cancel', 'job': job_id})
+    return await control_request(user, {'action': 'cancel', 'job': job_id}, session_token=session_from_request(request))
 
 
 @router.get('/console', response_class=HTMLResponse)

@@ -1,14 +1,6 @@
-"""Owner-only, short-lived device capabilities; SSH credentials never enter Web."""
-import base64
-import hashlib
-import hmac
-import json
-from pathlib import Path
-import time
-import uuid
-
-CONFIG = Path('/etc/buildstudio-there/device-control-web.json')
+"""Device delegation through independently verified Systems sessions; no Web signing key."""
 HEADER = 'X-BuildStudio-Device-Capability'
+BROKER = 'http://127.0.0.1:8743'
 
 
 def explicit_session_header(value):
@@ -20,38 +12,50 @@ def explicit_session_header(value):
             and not parts[1].startswith('sk-'))
 
 
-def capability(user, scope, *, chat='', job='', digest='', config_path=None):
-    if getattr(user, 'role', None) != 'admin':
-        return ''
-    try:
-        config = json.loads((config_path or CONFIG).read_text())
-    except FileNotFoundError:
-        return ''  # Optional installation; ordinary chat remains available.
-    if str(getattr(user, 'id', '')) not in config.get('owners', []):
-        return ''
-    key = Path(config['signing_key_file']).read_bytes().strip()
-    if len(key) < 32 or scope not in {'agent', 'console', 'approve'}:
-        raise ValueError('Device control configuration is invalid')
-    now = int(time.time())
-    claims = {'aud': 'there-device-control-v1', 'owner': str(user.id), 'scope': scope,
-              'jti': uuid.uuid4().hex,
-              'chat': chat, 'iat': now, 'exp': now + (900 if scope == 'agent' else 60),
-              'job': job, 'digest': digest}
-    body = base64.urlsafe_b64encode(json.dumps(claims, sort_keys=True, separators=(',', ':')).encode()).decode().rstrip('=')
-    return body + '.' + hmac.new(key, body.encode(), hashlib.sha256).hexdigest()
+def session_from_request(request):
+    header = getattr(request, 'headers', {}).get('authorization')
+    if header:
+        return header.split(' ')[1] if explicit_session_header(header) else ''
+    return getattr(request, 'cookies', {}).get('token', '')
 
 
-async def control_request(user, body, *, approve=False):
+async def capability(user, scope, *, session_token='', chat='', job='', digest=''):
+    if (getattr(user, 'role', None) != 'admin' or not isinstance(session_token, str)
+            or not session_token.startswith('bs1_') or len(session_token) > 200):
+        return ''
+    import httpx
+    async with httpx.AsyncClient(trust_env=False, follow_redirects=False, timeout=5) as client:
+        try:
+            response = await client.post(BROKER + '/v1/session',
+                json={'scope': scope, 'chat': chat, 'job': job, 'digest': digest},
+                headers={'Authorization': 'Bearer ' + session_token})
+        except httpx.HTTPError:
+            raise ValueError('Device authorization unavailable') from None
+    if response.status_code in (401, 403):
+        return ''
+    if response.status_code != 200:
+        raise ValueError('Device authorization unavailable')
+    result = response.json()
+    if (not isinstance(result, dict) or result.get('owner') != str(getattr(user, 'id', ''))
+            or not isinstance(result.get('capability'), str) or len(result['capability']) > 4096):
+        raise ValueError('Device authorization mismatch')
+    return result['capability']
+
+
+async def control_request(user, body, *, session_token='', approve=False):
     import httpx
     from fastapi import HTTPException
-    proof = capability(user, 'approve' if approve else 'console',
-                       job=body.get('job', '') if approve else '',
-                       digest=body.get('digest', '') if approve else '')
+    try:
+        proof = await capability(user, 'approve' if approve else 'console', session_token=session_token,
+                           job=body.get('job', '') if approve else '',
+                           digest=body.get('digest', '') if approve else '')
+    except (ValueError, TypeError, KeyError):
+        raise HTTPException(503, 'Device management is unavailable.') from None
     if not proof:
         raise HTTPException(403, 'Device management is available only to the registered owner.')
     async with httpx.AsyncClient(trust_env=False, follow_redirects=False, timeout=115) as client:
         try:
-            r = await client.post('http://127.0.0.1:8743/v1/control', json=body,
+            r = await client.post(BROKER + '/v1/control', json=body,
                                   headers={'Authorization': 'Bearer ' + proof})
         except httpx.HTTPError:
             raise HTTPException(503, 'Device management is unavailable.') from None

@@ -36,18 +36,15 @@ SPOOFED = {
 class BindingTests(IsolatedAsyncioTestCase):
     async def test_device_proof_uses_owner_allowlist_after_saved_chat_check(self):
         from open_webui.utils import device_control
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            (root/'key').write_text('fixture-key-not-a-real-secret-1234567890')
-            (root/'config').write_text(json.dumps({'owners':[ADMIN.id], 'signing_key_file':str(root/'key')}))
-            with patch.object(device_control, 'CONFIG', root/'config'):
-                result = await binding.bind_agent_request_headers(SPOOFED, URL, ADMIN, {'chat_id':CHAT}, AsyncMock(return_value=True))
-                self.assertNotEqual(result[device_control.HEADER], 'forged-capability')
-                other = SimpleNamespace(id='other-admin', role='admin')
-                denied = await binding.bind_agent_request_headers(SPOOFED, URL, other, {'chat_id':CHAT}, AsyncMock(return_value=True))
-                self.assertFalse(any(k.lower() == device_control.HEADER.lower() for k in denied))
-                with self.assertRaises(binding.AgentChatBindingError):
-                    await binding.bind_agent_request_headers(SPOOFED, URL, ADMIN, {'chat_id':CHAT}, AsyncMock(return_value=False))
+        with patch.object(device_control, 'capability', new=AsyncMock(return_value='broker-proof')) as issuer:
+            result = await binding.bind_agent_request_headers(SPOOFED, URL, ADMIN, {'chat_id':CHAT}, AsyncMock(return_value=True), session_token='bs1_synthetic_owner_session')
+            self.assertEqual(result[device_control.HEADER], 'broker-proof')
+            issuer.assert_awaited_once_with(ADMIN, 'agent', chat=CHAT, session_token='bs1_synthetic_owner_session')
+            self.assertNotIn('bs1_synthetic_owner_session', result.values())
+            issuer.reset_mock()
+            with self.assertRaises(binding.AgentChatBindingError):
+                await binding.bind_agent_request_headers(SPOOFED, URL, ADMIN, {'chat_id':CHAT}, AsyncMock(return_value=False), session_token='bs1_synthetic_owner_session')
+            issuer.assert_not_awaited()
 
     async def test_optional_broken_device_configuration_keeps_chat_without_device_access(self):
         with patch('open_webui.utils.device_control.capability', side_effect=ValueError('synthetic invalid config')):

@@ -185,6 +185,7 @@ async def bind_agent_request_headers(
     user: Any,
     metadata: dict | None,
     is_chat_owner: Callable[[str, str], Awaitable[bool]],
+    *, session_token: str = '',
 ) -> dict[str, str]:
     """Bind a saved chat from the authoritative Web database, never caller headers.
 
@@ -221,7 +222,7 @@ async def bind_agent_request_headers(
     bound[AGENT_CHAT_HEADER] = chat_id
     from open_webui.utils.device_control import capability, HEADER
     try:
-        device_proof = capability(user, 'agent', chat=chat_id)
+        device_proof = await capability(user, 'agent', chat=chat_id, session_token=session_token)
     except (OSError, ValueError, KeyError, TypeError):
         # Optional device management must fail closed without breaking chat.
         logging.getLogger(__name__).warning('Device capability unavailable; device tools remain disabled')

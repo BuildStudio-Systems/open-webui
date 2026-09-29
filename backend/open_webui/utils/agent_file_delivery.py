@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 from urllib.parse import urlsplit
@@ -10,6 +11,7 @@ FILE_OWNER_HEADER = 'X-BuildStudio-User-Id'
 AGENT_CHAT_HEADER = 'X-BuildStudio-Chat-Id'
 _RESERVED_AGENT_HEADERS = frozenset({
     FILE_OWNER_HEADER.lower(), AGENT_CHAT_HEADER.lower(),
+    'x-buildstudio-device-capability',
     'x-hermes-session-id', 'x-hermes-session-key',
 })
 _OWNER_RE = re.compile(r'^[A-Za-z0-9._:-]{1,128}$')
@@ -217,4 +219,13 @@ async def bind_agent_request_headers(
     owner_id = owner_headers[FILE_OWNER_HEADER]
     await require_agent_chat_owner(chat_id, owner_id, is_chat_owner)
     bound[AGENT_CHAT_HEADER] = chat_id
+    from open_webui.utils.device_control import capability, HEADER
+    try:
+        device_proof = capability(user, 'agent', chat=chat_id)
+    except (OSError, ValueError, KeyError, TypeError):
+        # Optional device management must fail closed without breaking chat.
+        logging.getLogger(__name__).warning('Device capability unavailable; device tools remain disabled')
+        device_proof = ''
+    if device_proof:
+        bound[HEADER] = device_proof
     return bound

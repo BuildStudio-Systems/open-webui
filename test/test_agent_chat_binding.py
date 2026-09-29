@@ -6,9 +6,14 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import IsolatedAsyncioTestCase, main
 from unittest.mock import AsyncMock
+from unittest.mock import patch
+import sys
+import tempfile
+import json
 
 
 BACKEND = Path(__file__).parents[1] / 'backend/open_webui'
+sys.path.insert(0, str(BACKEND.parent))
 spec = importlib.util.spec_from_file_location(
     'agent_chat_binding', BACKEND / 'utils/agent_file_delivery.py'
 )
@@ -22,12 +27,34 @@ SPOOFED = {
     'X-BUILDSTUDIO-CHAT-ID': 'another-chat',
     'x-Hermes-Session-ID': 'private-session',
     'X-HERMES-SESSION-KEY': 'private-key',
+    'x-buildstudio-device-capability': 'forged-capability',
     'Authorization': 'Bearer synthetic-test-key',
     'X-Other': 'preserved',
 }
 
 
 class BindingTests(IsolatedAsyncioTestCase):
+    async def test_device_proof_uses_owner_allowlist_after_saved_chat_check(self):
+        from open_webui.utils import device_control
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root/'key').write_text('fixture-key-not-a-real-secret-1234567890')
+            (root/'config').write_text(json.dumps({'owners':[ADMIN.id], 'signing_key_file':str(root/'key')}))
+            with patch.object(device_control, 'CONFIG', root/'config'):
+                result = await binding.bind_agent_request_headers(SPOOFED, URL, ADMIN, {'chat_id':CHAT}, AsyncMock(return_value=True))
+                self.assertNotEqual(result[device_control.HEADER], 'forged-capability')
+                other = SimpleNamespace(id='other-admin', role='admin')
+                denied = await binding.bind_agent_request_headers(SPOOFED, URL, other, {'chat_id':CHAT}, AsyncMock(return_value=True))
+                self.assertFalse(any(k.lower() == device_control.HEADER.lower() for k in denied))
+                with self.assertRaises(binding.AgentChatBindingError):
+                    await binding.bind_agent_request_headers(SPOOFED, URL, ADMIN, {'chat_id':CHAT}, AsyncMock(return_value=False))
+
+    async def test_optional_broken_device_configuration_keeps_chat_without_device_access(self):
+        with patch('open_webui.utils.device_control.capability', side_effect=ValueError('synthetic invalid config')):
+            result = await binding.bind_agent_request_headers(SPOOFED, URL, ADMIN, {'chat_id':CHAT}, AsyncMock(return_value=True))
+        self.assertEqual(result[binding.AGENT_CHAT_HEADER], CHAT)
+        self.assertFalse(any(k.lower() == 'x-buildstudio-device-capability' for k in result))
+
     async def test_auxiliary_tasks_never_enter_agent_even_without_saved_chat(self):
         for task in ('title_generation', 'TASKS.TITLE_GENERATION', 'query_generation',
                      'tags_generation', 'follow_up_generation', 'future_task'):

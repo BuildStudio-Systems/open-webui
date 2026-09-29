@@ -144,6 +144,7 @@ from open_webui.models.models import Models, normalize_model_tags
 from open_webui.models.users import Users
 from open_webui.routers import (
     agent_files,
+    device_control,
     analytics,
     audio,
     auths,
@@ -851,6 +852,7 @@ app.include_router(models.router, prefix='/api/v1/models', tags=['models'])
 app.include_router(notifications.router, prefix='/api/v1/notifications', tags=['notifications'])
 app.include_router(knowledge.router, prefix='/api/v1/knowledge', tags=['knowledge'])
 app.include_router(there.router, prefix='/api/v1/there', tags=['there'])
+app.include_router(device_control.router, prefix='/api/v1/device-control', tags=['device-control'])
 app.include_router(there_knowledge.router, prefix='/api/v1/there', tags=['there'])
 app.include_router(there_personal.router, prefix='/api/v1/there', tags=['there'])
 app.include_router(prompts.router, prefix='/api/v1/prompts', tags=['prompts'])

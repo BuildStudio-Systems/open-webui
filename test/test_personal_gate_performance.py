@@ -1,5 +1,6 @@
 """Real SQLite/ORM destination gate with synthetic large transcripts."""
 import ast
+import importlib.util
 from contextlib import asynccontextmanager
 import html
 from pathlib import Path
@@ -63,9 +64,13 @@ class PersonalGateTests(unittest.IsolatedAsyncioTestCase):
         path = Path(__file__).resolve().parents[1] / 'backend/open_webui/there_integration/personal.py'
         tree = ast.parse(path.read_text(encoding='utf-8'))
         nodes = [node for node in tree.body if isinstance(node, ast.AsyncFunctionDef) and node.name == 'personal_sources']
+        context_path = path.with_name('personal_context.py')
+        spec = importlib.util.spec_from_file_location('gate_personal_context', context_path)
+        context = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(context)
         namespace = dict(Chat=Chat, AccessGrant=AccessGrant, select=select, load_only=load_only,
                          personal_session=personal_session, query_terms=lambda q: ['test'] if q else [],
-                         search_history=search_history, html=html)
+                         search_history=search_history, html=html, history_source=context.history_source)
         exec(compile(ast.Module(body=nodes, type_ignores=[]), str(path), 'exec'), namespace)
         self.sources = namespace['personal_sources']
 

@@ -8,6 +8,12 @@ from open_webui.utils.device_control import control_request, explicit_session_he
 router = APIRouter()
 
 
+@router.post('/wecom-agent')
+async def wecom_agent(request: Request):
+    from open_webui.utils.wecom_agent import handle
+    return JSONResponse(await handle(request), headers={'Cache-Control': 'no-store'})
+
+
 class Approval(BaseModel):
     digest: str = Field(pattern=r'^[0-9a-f]{64}$')
 

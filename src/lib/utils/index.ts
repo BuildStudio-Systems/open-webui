@@ -19,7 +19,7 @@ dayjs.extend(localizedFormat);
 
 import { TTS_RESPONSE_SPLIT } from '$lib/types';
 
-import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url';
+import { extractPdfText as extractBundledPdfText } from './pdf-document';
 
 import { marked } from 'marked';
 import markedExtension from '$lib/utils/marked/extension';
@@ -1849,18 +1849,6 @@ function ensureReadableStreamAsyncIterator() {
 	});
 }
 
-async function ensurePDFjsLoaded() {
-	ensureReadableStreamAsyncIterator();
-	if (!window.pdfjsLib) {
-		const pdfjs = await import('pdfjs-dist');
-		pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
-		if (!window.pdfjsLib) {
-			throw new Error('pdfjsLib is required for PDF extraction');
-		}
-	}
-	return window.pdfjsLib;
-}
-
 export const extractContentFromFile = async (file: File) => {
 	// Known text file extensions for extra fallback
 	const textExtensions = [
@@ -1885,17 +1873,8 @@ export const extractContentFromFile = async (file: File) => {
 
 	// Uses pdfjs to extract text from PDF
 	async function extractPdfText(file: File) {
-		const pdfjsLib = await ensurePDFjsLoaded();
-		const arrayBuffer = await file.arrayBuffer();
-		const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-		let allText = '';
-		for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-			const page = await pdf.getPage(pageNum);
-			const content = await page.getTextContent();
-			const strings = content.items.map((item: any) => item.str);
-			allText += strings.join(' ') + '\n';
-		}
-		return allText;
+		ensureReadableStreamAsyncIterator();
+		return extractBundledPdfText(await file.arrayBuffer());
 	}
 
 	// Reads file as text using FileReader

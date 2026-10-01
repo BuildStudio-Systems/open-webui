@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy, tick } from 'svelte';
-	import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url';
+	import { loadPdfDocument } from '$lib/utils/pdf-document';
 	import panzoom, { type PanZoom } from 'panzoom';
 	import { clampDocumentTargetPage } from '$lib/utils/documentPreview';
 	import Spinner from './Spinner.svelte';
@@ -403,13 +403,10 @@
 		pageCount = 0;
 		pzInstance?.dispose();
 		cancelTextLayers();
-		pdfDoc?.destroy();
+		pdfDoc?.loadingTask.destroy();
 		pdfDoc = null;
 
 		try {
-			const pdfjs = await import('pdfjs-dist');
-			pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
-
 			let pdfData: ArrayBuffer | Uint8Array;
 			if (data) {
 				pdfData = copyPdfData(data);
@@ -419,8 +416,12 @@
 				if (!res.ok) throw new Error(`HTTP ${res.status}`);
 				pdfData = await res.arrayBuffer();
 			}
-			pdfDoc = await pdfjs.getDocument({ data: pdfData }).promise;
-			if (token !== loadToken) return;
+			const loaded = await loadPdfDocument(pdfData);
+			if (token !== loadToken) {
+				await loaded.loadingTask.destroy();
+				return;
+			}
+			pdfDoc = loaded;
 			pageCount = pdfDoc.numPages;
 			activePage = clampDocumentTargetPage(targetPage, pageCount) ?? 1;
 			targetPage = clampDocumentTargetPage(targetPage, pageCount) ?? 1;
@@ -460,7 +461,7 @@
 		pzInstance?.dispose();
 		cancelTextLayers();
 		if (pdfDoc) {
-			pdfDoc.destroy();
+			pdfDoc.loadingTask.destroy();
 			pdfDoc = null;
 		}
 	});

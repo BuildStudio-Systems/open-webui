@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onDestroy, onMount, tick } from 'svelte';
-	import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url';
+	import { loadPdfDocument } from '$lib/utils/pdf-document';
 	import Spinner from './Spinner.svelte';
 	import PDFViewer from './PDFViewer.svelte';
 
@@ -63,17 +63,20 @@
 		thumbnails = [];
 
 		try {
-			const pdfjs = await import('pdfjs-dist');
-			pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
-
-			pdfDoc?.destroy();
-			pdfDoc = await pdfjs.getDocument({ data: pdfData }).promise;
+			pdfDoc?.loadingTask.destroy();
+			pdfDoc = null;
+			const loaded = await loadPdfDocument(pdfData);
+			if (token !== loadToken) {
+				await loaded.loadingTask.destroy();
+				return;
+			}
+			pdfDoc = loaded;
 
 			const rendered: string[] = [];
-			for (let i = 1; i <= pdfDoc.numPages; i++) {
+			for (let i = 1; i <= loaded.numPages; i++) {
 				if (token !== loadToken) return;
 
-				const page = await pdfDoc.getPage(i);
+				const page = await loaded.getPage(i);
 				const viewport = page.getViewport({ scale: 0.28 });
 				const canvas = document.createElement('canvas');
 				canvas.width = viewport.width;
@@ -131,7 +134,7 @@
 	onDestroy(() => {
 		loadToken++;
 		resizeObserver?.disconnect();
-		pdfDoc?.destroy();
+		pdfDoc?.loadingTask.destroy();
 	});
 </script>
 

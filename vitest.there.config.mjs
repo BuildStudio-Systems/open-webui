@@ -5,6 +5,7 @@ export default {
 	test: {
 		environment: 'node',
 		include: [
+			'src/lib/utils/pdf-document.test.ts',
 			'src/lib/utils/editor-dependency-graph.test.ts',
 			'src/lib/utils/release-dependency-contract.test.ts',
 			'src/lib/apis/audio/*.test.ts',

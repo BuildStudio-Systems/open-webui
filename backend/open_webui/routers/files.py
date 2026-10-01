@@ -245,7 +245,7 @@ async def process_uploaded_file(
                             raise Exception(f'Failed to link file {file_item.id} to knowledge {knowledge_id}')
                         log.info('Linked file %s to knowledge %s', file_item.id, knowledge_id)
                 except Exception as e:
-                    log.warning(f'Failed to link file {file_item.id} to knowledge {knowledge_id}: {e}')
+                    log.warning('File knowledge link failed')
                     raise
 
         except Exception as e:
@@ -254,7 +254,7 @@ async def process_uploaded_file(
                 file_item.id,
                 {
                     'status': 'failed',
-                    'error': str(e.detail) if hasattr(e, 'detail') else str(e),
+                    'error': 'File processing failed',
                 },
                 db=db_session,
             )
@@ -592,7 +592,7 @@ async def delete_all_files(
 ############################
 
 
-@router.get('/{id}', response_model=Optional[FileModel])
+@router.get('/{id}', response_model=Optional[FileModelResponse])
 async def get_file_by_id(id: str, user=Depends(get_verified_user), db: AsyncSession = Depends(get_async_session)):
     file = await Files.get_file_by_id(id, db=db)
 

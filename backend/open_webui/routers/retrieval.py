@@ -778,7 +778,7 @@ async def update_embedding_config(request: Request, form_data: EmbeddingModelUpd
             },
         }
     except Exception as e:
-        log.exception(f'Problem updating embedding model: {e}')
+        log.warning('Retrieval operation failed')
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=ERROR_MESSAGES.DEFAULT(e, 'Error updating embedding configuration'),
@@ -1364,7 +1364,7 @@ async def update_rag_config(request: Request, form_data: ConfigForm, user=Depend
             log.error(f'Error loading reranking model: {e}')
             config.ENABLE_RAG_HYBRID_SEARCH = False
     except Exception as e:
-        log.exception(f'Problem updating reranking model: {e}')
+        log.warning('Retrieval operation failed')
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=ERROR_MESSAGES.DEFAULT(e, 'Error updating reranking configuration'),
@@ -1874,23 +1874,7 @@ def save_docs_to_vector_db(
     add: bool = False,
     user=None,
 ) -> bool:
-    def _get_docs_info(docs: list[Document]) -> str:
-        docs_info = set()
-
-        # Trying to select relevant metadata identifying the document.
-        for doc in docs:
-            metadata = getattr(doc, 'metadata', {})
-            doc_name = metadata.get('name', '')
-            if not doc_name:
-                doc_name = metadata.get('title', '')
-            if not doc_name:
-                doc_name = metadata.get('source', '')
-            if doc_name:
-                docs_info.add(doc_name)
-
-        return ', '.join(docs_info)
-
-    log.debug('save_docs_to_vector_db: document %s %s', _get_docs_info(docs), collection_name)
+    log.debug('Vector ingestion: documents=%d', len(docs))
 
     # Check if entries with the same hash (metadata.hash) already exist
     if metadata and 'hash' in metadata:
@@ -2008,7 +1992,7 @@ def save_docs_to_vector_db(
         log.info('added %s items to collection %s', len(items), collection_name)
         return True
     except Exception as e:
-        log.exception(e)
+        log.warning('Retrieval operation failed')
         raise e
 
 
@@ -2159,7 +2143,7 @@ async def process_file(
                     ]
                 text_content = ' '.join([doc.page_content for doc in docs])
 
-            log.debug('text_content: %s', text_content)
+            log.debug('Text extraction completed; characters=%d', len(text_content))
             await Files.update_file_data_by_id(
                 file.id,
                 {'content': text_content},
@@ -2252,12 +2236,12 @@ async def process_file(
                     raise e
 
         except Exception as e:
-            log.exception(e)
+            log.warning('File processing failed')
             # Fresh session for error status update.
             async with get_async_db() as session:
                 await Files.update_file_data_by_id(
                     file.id,
-                    {'status': 'failed', 'error': str(e)},
+                    {'status': 'failed', 'error': 'File processing failed'},
                     db=session,
                 )
                 # Clear the hash so the file can be re-uploaded after fixing the issue
@@ -2272,7 +2256,7 @@ async def process_file(
                 data={
                     'collection_name': collection_name,
                     'filename': file.filename,
-                    'message': f'{file.filename}: {e}',
+                    'message': 'File processing failed',
                 },
             )
 
@@ -2284,7 +2268,7 @@ async def process_file(
             else:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=str(e),
+                    detail='File processing failed',
                 )
 
     else:
@@ -2316,7 +2300,7 @@ async def process_text(
         )
     ]
     text_content = form_data.content
-    log.debug('text_content: %s', text_content)
+    log.debug('Text extraction completed; characters=%d', len(text_content))
 
     config = await get_retrieval_config()
     result = await run_in_threadpool(save_docs_to_vector_db, request, docs, collection_name, config, user=user)
@@ -2327,7 +2311,7 @@ async def process_text(
             actor=user,
             subject_id=collection_name,
             subject_type='retrieval.collection',
-            data={'name': form_data.name, 'content_preview': text_content[:300]},
+            data={'name': form_data.name, 'content_length': len(text_content)},
         )
         return {
             'status': True,
@@ -2518,10 +2502,10 @@ async def process_url(
     except HTTPException:
         raise
     except Exception as e:
-        log.exception(e)
+        log.warning('Web document processing failed')
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=ERROR_MESSAGES.DEFAULT(e, 'Error processing URL'),
+            detail='Error processing URL',
         )
 
 
@@ -2541,20 +2525,20 @@ async def process_web(
     except HTTPException:
         raise
     except YoutubeTranscriptError as e:
-        log.warning('YouTube transcript unavailable for %s: %s', form_data.url, e)
+        log.warning('YouTube transcript unavailable')
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
+            detail='YouTube transcript unavailable',
         )
     except Exception as e:
-        log.exception(e)
+        log.warning('Web document processing failed')
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=ERROR_MESSAGES.DEFAULT(e, f'Could not read content from {form_data.url}'),
+            detail='Could not read web content',
         )
 
     try:
-        log.debug('text_content: %s', content)
+        log.debug('Web extraction completed; characters=%d', len(content or ''))
 
         if process:
             collection_name = form_data.collection_name
@@ -2600,10 +2584,10 @@ async def process_web(
     except HTTPException:
         raise
     except Exception as e:
-        log.exception(e)
+        log.warning('Web document processing failed')
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=ERROR_MESSAGES.DEFAULT(e, 'Error querying knowledge base'),
+            detail='Error processing web content',
         )
 
 
@@ -3224,7 +3208,7 @@ async def query_doc_handler(
     except HTTPException:
         raise
     except Exception as e:
-        log.exception(e)
+        log.warning('Retrieval operation failed')
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=ERROR_MESSAGES.DEFAULT(e, 'Error querying knowledge base'),
@@ -3292,7 +3276,7 @@ async def query_collection_handler(
     except HTTPException:
         raise
     except Exception as e:
-        log.exception(e)
+        log.warning('Retrieval operation failed')
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=ERROR_MESSAGES.DEFAULT(e, 'Error querying knowledge base'),
@@ -3318,6 +3302,9 @@ async def delete_entries_from_collection(
     user=Depends(get_admin_user),
     db: AsyncSession = Depends(get_async_session),
 ):
+    await _validate_collection_access([form_data.collection_name], user, access_type='write')
+    if not can_bypass_private_content_access(user.role) and not await has_access_to_file(form_data.file_id, 'write', user, db=db):
+        raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
     try:
         if await ASYNC_VECTOR_DB_CLIENT.has_collection(collection_name=form_data.collection_name):
             file = await Files.get_file_by_id(form_data.file_id, db=db)
@@ -3367,7 +3354,7 @@ async def delete_entries_from_collection(
         # swallowed and re-shaped as `{'status': False}`.
         raise
     except Exception as e:
-        log.exception(e)
+        log.warning('Retrieval operation failed')
         return {'status': False}
 
 
@@ -3377,6 +3364,8 @@ async def reset_vector_db(
     user=Depends(get_admin_user),
     db: AsyncSession = Depends(get_async_session),
 ):
+    if not can_bypass_private_content_access(user.role):
+        raise HTTPException(status_code=403, detail=ERROR_MESSAGES.ACCESS_PROHIBITED)
     await ASYNC_VECTOR_DB_CLIENT.reset()
     await Knowledges.delete_all_knowledge(db=db)
     await publish_event(
@@ -3389,6 +3378,8 @@ async def reset_vector_db(
 
 @router.post('/reset/uploads')
 async def reset_upload_dir(request: Request, user=Depends(get_admin_user)) -> bool:
+    if not can_bypass_private_content_access(user.role):
+        raise HTTPException(status_code=403, detail=ERROR_MESSAGES.ACCESS_PROHIBITED)
     folder = f'{UPLOAD_DIR}'
     try:
         # Check if the directory exists
@@ -3404,11 +3395,11 @@ async def reset_upload_dir(request: Request, user=Depends(get_admin_user)) -> bo
                     elif await asyncio.to_thread(os.path.isdir, file_path):
                         await asyncio.to_thread(shutil.rmtree, file_path)  # Remove the directory
                 except Exception as e:
-                    log.exception(f'Failed to delete {file_path}. Reason: {e}')
+                    log.warning('Retrieval operation failed')
         else:
             log.warning(f'The directory {folder} does not exist')
     except Exception as e:
-        log.exception(f'Failed to process the directory {folder}. Reason: {e}')
+        log.warning('Retrieval operation failed')
 
     await publish_event(
         request,
@@ -3462,8 +3453,9 @@ async def process_files_batch(
     config = await get_retrieval_config()
     collection_name = form_data.collection_name
 
-    if collection_name:
-        await _validate_collection_access([collection_name], user, access_type='write')
+    if not collection_name:
+        raise HTTPException(status_code=400, detail='A target collection is required')
+    await _validate_collection_access([collection_name], user, access_type='write')
 
     file_results: list[BatchProcessFilesResult] = []
     file_errors: list[BatchProcessFilesResult] = []
@@ -3474,7 +3466,7 @@ async def process_files_batch(
 
     for file in form_data.files:
         try:
-            # Ownership check: verify the requesting user owns the file or is an admin
+            # Resolve trusted data and permissions from storage, not the batch body.
             db_file = await Files.get_file_by_id(file.id, db=db)
             if not db_file:
                 file_errors.append(
@@ -3485,7 +3477,7 @@ async def process_files_batch(
                     )
                 )
                 continue
-            if db_file.user_id != user.id and user.role != 'admin':
+            if db_file.user_id != user.id and not can_bypass_private_content_access(user.role) and not await has_access_to_file(db_file.id, 'write', user, db=db):
                 file_errors.append(
                     BatchProcessFilesResult(
                         file_id=file.id,
@@ -3495,6 +3487,7 @@ async def process_files_batch(
                 )
                 continue
 
+            file = db_file
             text_content = file.data.get('content', '')
             docs: list[Document] = [
                 Document(
@@ -3520,8 +3513,8 @@ async def process_files_batch(
             file_results.append(BatchProcessFilesResult(file_id=file.id, status='prepared'))
 
         except Exception as e:
-            log.error(f'process_files_batch: Error processing file {file.id}: {str(e)}')
-            file_errors.append(BatchProcessFilesResult(file_id=file.id, status='failed', error=str(e)))
+            log.warning('Batch file processing failed')
+            file_errors.append(BatchProcessFilesResult(file_id=file.id, status='failed', error='File processing failed'))
 
     # Save all documents in one batch
     if all_docs:
@@ -3542,10 +3535,10 @@ async def process_files_batch(
                 file_result.status = 'completed'
 
         except Exception as e:
-            log.error(f'process_files_batch: Error saving documents to vector DB: {str(e)}')
+            log.warning('Batch vector storage failed')
             for file_result in file_results:
                 file_result.status = 'failed'
-                file_errors.append(BatchProcessFilesResult(file_id=file_result.file_id, status='failed', error=str(e)))
+                file_errors.append(BatchProcessFilesResult(file_id=file_result.file_id, status='failed', error='File processing failed'))
 
     response = BatchProcessFilesResponse(results=file_results, errors=file_errors)
     await publish_event(

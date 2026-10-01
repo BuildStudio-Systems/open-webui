@@ -326,9 +326,9 @@ async def search_web(
             [{'title': r.title, 'link': r.link, 'snippet': r.snippet} for r in results],
             ensure_ascii=False,
         )
-    except Exception as e:
-        log.exception(f'search_web error: {e}')
-        return JSONCodec.dumps({'error': str(e)})
+    except Exception:
+        log.warning('Public web search failed')
+        return JSONCodec.dumps({'error': 'Web search failed. Please try again later.'})
 
 
 async def fetch_url(
@@ -358,9 +358,9 @@ async def fetch_url(
             content = ''
 
         return content
-    except Exception as e:
-        log.warning(f'fetch_url error: {e}')
-        return JSONCodec.dumps({'error': str(e)})
+    except Exception:
+        log.warning('Public web fetch failed')
+        return JSONCodec.dumps({'error': 'Web content could not be retrieved.'})
 
 
 # =============================================================================

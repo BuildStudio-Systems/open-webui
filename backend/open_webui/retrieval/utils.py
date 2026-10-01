@@ -340,11 +340,11 @@ def query_doc(collection_name: str, query_embedding: list[float], k: int, user: 
         )
 
         if result:
-            log.info('query_doc:result %s %s', result.ids, result.metadatas)
+            log.debug('Document retrieval returned results')
 
         return result
     except Exception as e:
-        log.exception(f'Error querying doc {collection_name} with limit {k}: {e}')
+        log.warning('Retrieval operation failed')
         raise e
 
 
@@ -354,11 +354,11 @@ def get_doc(collection_name: str, user: UserModel = None):
         result = VECTOR_DB_CLIENT.get(collection_name=collection_name)
 
         if result:
-            log.info('query_doc:result %s %s', result.ids, result.metadatas)
+            log.debug('Document retrieval returned results')
 
         return result
     except Exception as e:
-        log.exception(f'Error getting doc {collection_name}: {e}')
+        log.warning('Retrieval operation failed')
         raise e
 
 
@@ -607,10 +607,10 @@ async def query_doc_with_hybrid_search(
             'metadatas': [metadatas],
         }
 
-        log.info('query_doc_with_hybrid_search:result %s %s', result['metadatas'], result['distances'])
+        log.debug('Hybrid retrieval: documents=%d', len(documents))
         return result
     except Exception as e:
-        log.exception(f'Error querying doc {collection_name} with hybrid search: {e}')
+        log.warning('Retrieval operation failed')
         raise e
 
 
@@ -688,7 +688,7 @@ def get_all_items_from_collections(collection_names: list[str]) -> dict:
                 if result is not None:
                     results.append(result.model_dump())
             except Exception as e:
-                log.exception(f'Error when querying the collection: {e}')
+                log.warning('Retrieval operation failed')
         else:
             pass
 
@@ -746,7 +746,7 @@ async def query_collection(
                     return result.model_dump(), None
             return None, None
         except Exception as e:
-            log.exception(f'Error when querying the collection: {e}')
+            log.warning('Retrieval operation failed')
             return None, e
 
     # Sanitize: filter out None/empty queries to prevent embedding crashes
@@ -829,7 +829,7 @@ async def query_collection_with_hybrid_search(
         try:
             return name, await ASYNC_VECTOR_DB_CLIENT.get(collection_name=name)
         except Exception as e:
-            log.exception(f'Failed to fetch collection {name}: {e}')
+            log.warning('Retrieval operation failed')
             return name, None
 
     collection_results = dict(await asyncio.gather(*(_fetch_collection(name) for name in collection_names)))
@@ -853,7 +853,7 @@ async def query_collection_with_hybrid_search(
             )
             return result, None
         except Exception as e:
-            log.exception(f'Error when querying the collection with hybrid_search: {e}')
+            log.warning('Retrieval operation failed')
             return None, e
 
     # Prepare tasks for all collections and queries
@@ -1645,7 +1645,7 @@ async def get_sources_from_items(
                         k=k,
                     )
             except Exception as e:
-                log.exception(e)
+                log.warning('Retrieval operation failed')
 
             extracted_collections.extend(collection_names)
 
@@ -1669,7 +1669,7 @@ async def get_sources_from_items(
 
                     sources.append(source)
         except Exception as e:
-            log.exception(e)
+            log.warning('Retrieval operation failed')
     return sources
 
 
@@ -1706,7 +1706,7 @@ def get_model_path(model: str, update_model: bool = False):
         log.debug('model_repo_path: %s', model_repo_path)
         return model_repo_path
     except Exception as e:
-        log.exception(f'Cannot determine model snapshot path: {e}')
+        log.warning('Retrieval operation failed')
         if OFFLINE_MODE:
             raise
         return model

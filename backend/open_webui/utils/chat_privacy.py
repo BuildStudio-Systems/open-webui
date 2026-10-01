@@ -22,3 +22,8 @@ def can_bypass_private_content_access(role: str) -> bool:
     from open_webui.config import BYPASS_ADMIN_ACCESS_CONTROL, ENABLE_ADMIN_CHAT_ACCESS
 
     return role == 'admin' and BYPASS_ADMIN_ACCESS_CONTROL and ENABLE_ADMIN_CHAT_ACCESS
+
+
+def content_logging_enabled() -> bool:
+    """Body logging is a separate, explicit operator decision, never a UI grant."""
+    return os.getenv('THERE_ENABLE_CONTENT_LOGGING', 'false').strip().lower() == 'true'

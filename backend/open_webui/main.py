@@ -3021,27 +3021,9 @@ async def serve_cache_file(
     path: str,
     user=Depends(get_verified_user),
 ):
-    """Serve cached files (e.g. tool outputs) with path-traversal protection.
+    from open_webui.utils.private_cache import private_cache_response
 
-    Only ``image/*``, ``audio/*``, and ``video/*`` MIME types are served inline;
-    everything else gets a ``Content-Disposition: attachment`` header to prevent
-    XSS from user-generated HTML stored in the cache directory.
-    """
-    file_path = os.path.abspath(os.path.join(CACHE_DIR, path))
-    # trailing os.sep is required: without it, a path resolving to a sibling
-    # whose name starts with the cache-dir basename (e.g. cache_backup) passes
-    cache_root = os.path.abspath(CACHE_DIR) + os.sep
-    if not file_path.startswith(cache_root):
-        raise HTTPException(status_code=404, detail='File not found')
-    if not os.path.isfile(file_path):
-        raise HTTPException(status_code=404, detail='File not found')
-
-    mime, _ = mimetypes.guess_type(file_path)
-    inline_safe = mime and mime.split('/', 1)[0] in {'image', 'audio', 'video'}
-    headers = {'X-Content-Type-Options': 'nosniff'}
-    if not inline_safe:
-        headers['Content-Disposition'] = f'attachment; filename="{os.path.basename(file_path)}"'
-    return FileResponse(file_path, headers=headers)
+    return await private_cache_response(CACHE_DIR, path, user)
 
 
 def swagger_ui_html(*args, **kwargs):

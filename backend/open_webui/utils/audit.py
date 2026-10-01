@@ -33,6 +33,7 @@ from open_webui.env import (
 )
 from open_webui.models.users import UserModel
 from open_webui.utils.auth import get_current_user, get_http_authorization_cred
+from open_webui.utils.chat_privacy import content_logging_enabled
 from starlette.requests import Request
 
 if TYPE_CHECKING:
@@ -178,20 +179,21 @@ class AuditLoggingMiddleware:
             return await self.app(scope, receive, send)
 
         effective_audit_level = self.audit_level
+        if not content_logging_enabled() and effective_audit_level in (AuditLevel.REQUEST, AuditLevel.REQUEST_RESPONSE):
+            effective_audit_level = AuditLevel.METADATA
 
         async with self._audit_context(
             request,
             audit_level=effective_audit_level,
-            redact_query=False,
+            redact_query=True,
         ) as context:
 
             async def send_wrapper(message: ASGISendEvent) -> None:
-                if effective_audit_level == AuditLevel.REQUEST_RESPONSE:
-                    await self._capture_response(
-                        message,
-                        context,
-                        capture_body=(effective_audit_level == AuditLevel.REQUEST_RESPONSE),
-                    )
+                await self._capture_response(
+                    message,
+                    context,
+                    capture_body=(effective_audit_level == AuditLevel.REQUEST_RESPONSE),
+                )
 
                 await send(message)
 
@@ -246,8 +248,8 @@ class AuditLoggingMiddleware:
         try:
             user = await get_current_user(request, None, None, get_http_authorization_cred(auth_header))
             return user
-        except Exception as e:
-            logger.debug('Failed to get authenticated user: {}', e)
+        except Exception:
+            logger.debug('Failed to resolve audit user')
 
         return None
 
@@ -345,5 +347,5 @@ class AuditLoggingMiddleware:
             )
 
             self.audit_logger.write(entry)
-        except Exception as e:
-            logger.error(f'Failed to log audit entry: {str(e)}')
+        except Exception:
+            logger.error('Failed to log audit entry')

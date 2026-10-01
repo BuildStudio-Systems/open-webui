@@ -48,6 +48,8 @@ def test_file_routes_reject_old_shares_and_unconditional_admin(modules,monkeypat
                 assert MARKER not in r.text
             r=await h.client.get('/api/v1/files/private'+suffix,headers={'X-Test-User':'alice'})
             assert r.status_code==200,r.text
+            if not suffix:
+                assert 'path' not in r.json()  # Storage paths are server-internal.
     asyncio.run(run())
 
 

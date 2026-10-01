@@ -102,27 +102,41 @@ async def search_pairs(db, owner_id, *, query='', terms=None, exclude_id='', pag
         relation = 'eligible'
     if terms:
         terms = terms[:64]
+        # Fold each body once, rather than once per keyword (up to 64 times).
+        # Materialization prevents PostgreSQL from inlining this expression
+        # back into every CASE. Ranking still sees the complete original text.
+        cte += (", searchable AS MATERIALIZED (SELECT *, "
+                "lower(question || E'\\n' || answer) AS search_body FROM " + relation + ")")
+        relation = 'searchable'
         # Only parameter names are generated, never SQL from user input.
         score = ' + '.join(
-            f"CASE WHEN strpos(lower(question || E'\\n' || answer), :term_{i}) > 0 THEN 1 ELSE 0 END"
+            f"CASE WHEN strpos(search_body, :term_{i}) > 0 THEN 1 ELSE 0 END"
             for i in range(len(terms)))
         params.update({f'term_{i}': term.lower() for i, term in enumerate(terms)})
         params['threshold'] = min(2, len(terms))
-        filtered = f", ranked AS (SELECT *, ({score}) AS score FROM {relation}) SELECT * FROM ranked WHERE score >= :threshold"
+        cte += f", ranked AS (SELECT *, ({score}) AS score FROM {relation})"
+        relation = 'ranked'
+        predicate = 'score >= :threshold'
         ordering = 'score DESC, updated_at DESC, chat_id DESC, message_id'
     else:
-        filtered = f" SELECT * FROM {relation} WHERE strpos(lower(question || E'\\n' || answer), :needle) > 0"
+        predicate = "strpos(lower(question || E'\\n' || answer), :needle) > 0"
         ordering = 'updated_at DESC, chat_id DESC, message_id'
     # The database query has a bounded wall-clock budget and result size. A
     # timeout is not represented as a successful empty result.
     async with asyncio.timeout(5):
-        rows = (await db.execute(text(cte + filtered +
+        # Keep the existing public result limits, but apply them before network
+        # transfer. Neither full answers nor the folded ranking body leave DB.
+        projection = (" SELECT chat_id, title, updated_at, message_id, "
+                      "left(question, 16000) AS question, left(answer, 32000) AS answer, "
+                      "(length(question) > 16000 OR length(answer) > 32000) AS truncated "
+                      f"FROM {relation} WHERE {predicate}")
+        rows = (await db.execute(text(cte + projection +
             f' ORDER BY {ordering} OFFSET :offset LIMIT :row_limit'), params)).mappings().all()
     items = []
     for row in rows[:limit]:
         q, a = row['question'], row['answer']
         items.append(dict(chat_id=row['chat_id'], message_id=row['message_id'],
             title=row['title'], updated_at=row['updated_at'], question=q[:16000], answer=a[:32000],
-            truncated=len(q) > 16000 or len(a) > 32000))
+            truncated=bool(row['truncated'])))
     return dict(items=items, page=page, has_more=len(rows) > limit,
                 scope='personal', search_scope='all_history', pagination='question_answer')

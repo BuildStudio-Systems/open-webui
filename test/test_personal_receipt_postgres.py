@@ -16,6 +16,52 @@ SPEC.loader.exec_module(search)
 
 @unittest.skipUnless(os.environ.get('THERE_TEST_POSTGRES_URL'), 'requires explicit PostgreSQL test connection')
 class PostgresReceiptTests(unittest.TestCase):
+    def test_full_text_match_but_bounded_unicode_transfer(self):
+        async def run():
+            engine = create_async_engine(os.environ['THERE_TEST_POSTGRES_URL'])
+            try:
+                async with engine.connect() as db:
+                    transaction = await db.begin()
+                    try:
+                        await db.execute(text('SET LOCAL search_path = pg_temp, pg_catalog'))
+                        await db.execute(text('CREATE TEMP TABLE chat (id text, user_id text, title text, updated_at bigint, chat jsonb, meta jsonb, timer_at bigint) ON COMMIT DROP'))
+                        await db.execute(text('CREATE TEMP TABLE chat_message (id text, user_id text, chat_id text, role text, parent_id text, content jsonb, done boolean, error jsonb) ON COMMIT DROP'))
+                        for i, extra in enumerate(('', ' TARGET NEEDLE')):
+                            payload = {'history': {'messages': {
+                                'q': {'role': 'user', 'content': '質問😀' * 5333 + '問' + extra},
+                                'a': {'role': 'assistant', 'parentId': 'q', 'done': True,
+                                      'content': '回答😀' * 10666 + '回答' + extra}}}}
+                            await db.execute(text("INSERT INTO chat VALUES (:id,'alice','fixture',:i,CAST(:p AS jsonb),'{}',NULL)"),
+                                             dict(id=str(i), i=i, p=json.dumps(payload)))
+                        class CapturingDB:
+                            async def execute(self, *args, **kwargs):
+                                result = await db.execute(*args, **kwargs)
+                                rows = result.mappings().all()
+                                for row in rows:
+                                    self_test.assertLessEqual(len(row['question']), 16000)
+                                    self_test.assertLessEqual(len(row['answer']), 32000)
+                                    self_test.assertNotIn('search_body', row)
+                                class Replay:
+                                    def mappings(self): return self
+                                    def all(self): return rows
+                                return Replay()
+                        self_test = self
+                        for criteria in ({'terms': ['target', 'needle']}, {'query': 'TARGET NEEDLE'}):
+                            result = await search.search_pairs(CapturingDB(), 'alice', **criteria)
+                            self.assertEqual([r['chat_id'] for r in result['items']], ['1'])
+                            item = result['items'][0]
+                            self.assertTrue(item['truncated'])
+                            self.assertEqual(len(item['question']), 16000)
+                            self.assertEqual(len(item['answer']), 32000)
+                        exact = await search.search_pairs(CapturingDB(), 'alice', query='回答', limit=1, page=2)
+                        self.assertEqual(exact['items'][0]['chat_id'], '0')
+                        self.assertFalse(exact['items'][0]['truncated'])
+                    finally:
+                        await transaction.rollback()
+            finally:
+                await engine.dispose()
+        asyncio.run(run())
+
     def test_rank_filter_manual_search_ownership_and_pagination(self):
         async def run():
             engine = create_async_engine(os.environ['THERE_TEST_POSTGRES_URL'])

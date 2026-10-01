@@ -2605,6 +2605,7 @@ class ChatTable:
         from open_webui.models.files import Files
         from open_webui.models.users import Users
         from open_webui.utils.access_control.files import has_access_to_file
+        from open_webui.utils.chat_privacy import can_bypass_private_content_access
 
         user = await Users.get_user_by_id(user_id, db=db)
         accessible_file_ids = []
@@ -2614,7 +2615,7 @@ class ChatTable:
                 continue
             if (
                 file.user_id == user_id
-                or (user and user.role == 'admin')
+                or (user and can_bypass_private_content_access(user.role))
                 or (user and await has_access_to_file(file_id, 'read', user, db=db))
             ):
                 accessible_file_ids.append(file_id)

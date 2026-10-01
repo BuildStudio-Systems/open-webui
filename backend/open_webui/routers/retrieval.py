@@ -124,6 +124,7 @@ from open_webui.retrieval.web.ydc import search_youcom
 from open_webui.retrieval.web.linkup import search_linkup
 from open_webui.storage.provider import Storage
 from open_webui.utils.access_control import has_permission
+from open_webui.utils.chat_privacy import can_bypass_private_content_access
 from open_webui.utils.access_control.files import has_access_to_file
 from open_webui.utils.auth import get_admin_user, get_verified_user
 from open_webui.utils.misc import (
@@ -2034,7 +2035,7 @@ async def process_file(
     The session is committed before external API calls, and updates use a fresh session.
     """
     config = await get_retrieval_config()
-    if user.role == 'admin':
+    if can_bypass_private_content_access(user.role):
         file = await Files.get_file_by_id(form_data.file_id, db=db)
     else:
         file = await Files.get_file_by_id_and_user_id(form_data.file_id, user.id, db=db)

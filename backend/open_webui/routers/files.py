@@ -21,7 +21,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import FileResponse, StreamingResponse
-from open_webui.config import BYPASS_ADMIN_ACCESS_CONTROL, STORAGE_LOCAL_CACHE, STORAGE_PROVIDER, UPLOAD_DIR
+from open_webui.config import STORAGE_LOCAL_CACHE, STORAGE_PROVIDER, UPLOAD_DIR
 from open_webui.constants import ERROR_MESSAGES
 from open_webui.events import EVENTS, publish_event
 from open_webui.internal.db import get_async_db_context, get_async_session
@@ -53,6 +53,7 @@ log = logging.getLogger(__name__)
 router = APIRouter()
 
 
+from open_webui.utils.chat_privacy import can_bypass_private_content_access
 from open_webui.utils.access_control.files import has_access_to_file
 from open_webui.utils.json_codec import JSONCodec
 
@@ -481,7 +482,7 @@ async def list_files(
     db: AsyncSession = Depends(get_async_session),
 ):
     skip = (page - 1) * PAGE_SIZE
-    user_id = None if (user.role == 'admin' and BYPASS_ADMIN_ACCESS_CONTROL) else user.id
+    user_id = None if can_bypass_private_content_access(user.role) else user.id
 
     result = await Files.get_file_list(user_id=user_id, skip=skip, limit=PAGE_SIZE, db=db)
 
@@ -515,7 +516,7 @@ async def search_files(
     Uses SQL-based filtering with pagination for better performance.
     """
     # Determine user_id: null for admin with bypass (search all), user.id otherwise
-    user_id = None if (user.role == 'admin' and BYPASS_ADMIN_ACCESS_CONTROL) else user.id
+    user_id = None if can_bypass_private_content_access(user.role) else user.id
 
     # Use optimized database query with pagination
     files = await Files.search_files(
@@ -550,7 +551,7 @@ async def count_files(
     user=Depends(get_verified_user),
     db: AsyncSession = Depends(get_async_session),
 ):
-    user_id = None if (user.role == 'admin' and BYPASS_ADMIN_ACCESS_CONTROL) else user.id
+    user_id = None if can_bypass_private_content_access(user.role) else user.id
     return await Files.count_files_by_user_id(user_id=user_id, db=db)
 
 
@@ -563,6 +564,8 @@ async def count_files(
 async def delete_all_files(
     request: Request, user=Depends(get_admin_user), db: AsyncSession = Depends(get_async_session)
 ):
+    if not can_bypass_private_content_access(user.role):
+        raise HTTPException(status_code=403, detail=ERROR_MESSAGES.ACCESS_PROHIBITED)
     result = await Files.delete_all_files(db=db)
     if result:
         try:
@@ -599,7 +602,7 @@ async def get_file_by_id(id: str, user=Depends(get_verified_user), db: AsyncSess
             detail=ERROR_MESSAGES.NOT_FOUND,
         )
 
-    if file.user_id == user.id or user.role == 'admin' or await has_access_to_file(id, 'read', user, db=db):
+    if file.user_id == user.id or can_bypass_private_content_access(user.role) or await has_access_to_file(id, 'read', user, db=db):
         return file
     else:
         raise HTTPException(
@@ -626,7 +629,7 @@ async def get_file_process_status(
             detail=ERROR_MESSAGES.NOT_FOUND,
         )
 
-    if file.user_id == user.id or user.role == 'admin' or await has_access_to_file(id, 'read', user):
+    if file.user_id == user.id or can_bypass_private_content_access(user.role) or await has_access_to_file(id, 'read', user):
         if stream:
             MAX_FILE_PROCESSING_DURATION = 3600 * 2
 
@@ -684,7 +687,7 @@ async def get_file_data_content_by_id(
             detail=ERROR_MESSAGES.NOT_FOUND,
         )
 
-    if file.user_id == user.id or user.role == 'admin' or await has_access_to_file(id, 'read', user, db=db):
+    if file.user_id == user.id or can_bypass_private_content_access(user.role) or await has_access_to_file(id, 'read', user, db=db):
         return {'content': file.data.get('content', '')}
     else:
         raise HTTPException(
@@ -718,7 +721,7 @@ async def update_file_data_content_by_id(
             detail=ERROR_MESSAGES.NOT_FOUND,
         )
 
-    if file.user_id == user.id or user.role == 'admin' or await has_access_to_file(id, 'write', user, db=db):
+    if file.user_id == user.id or can_bypass_private_content_access(user.role) or await has_access_to_file(id, 'write', user, db=db):
         max_size = await Config.get('rag.file.max_size')
         if max_size and len(form_data.content.encode('utf-8')) > int(max_size) * 1024 * 1024:
             raise HTTPException(
@@ -794,7 +797,7 @@ async def get_file_content_by_id(
             detail=ERROR_MESSAGES.NOT_FOUND,
         )
 
-    if file.user_id == user.id or user.role == 'admin' or await has_access_to_file(id, 'read', user, db=db):
+    if file.user_id == user.id or can_bypass_private_content_access(user.role) or await has_access_to_file(id, 'read', user, db=db):
         try:
             file_path = await asyncio.to_thread(Storage.get_file, file.path)
             file_path = Path(file_path)
@@ -861,7 +864,7 @@ async def get_html_file_content_by_id(
             detail=ERROR_MESSAGES.NOT_FOUND,
         )
 
-    if file.user_id == user.id or user.role == 'admin' or await has_access_to_file(id, 'read', user, db=db):
+    if file.user_id == user.id or can_bypass_private_content_access(user.role) or await has_access_to_file(id, 'read', user, db=db):
         try:
             file_path = await asyncio.to_thread(Storage.get_file, file.path)
             file_path = Path(file_path)
@@ -903,7 +906,7 @@ async def get_file_content_by_id(
             detail=ERROR_MESSAGES.NOT_FOUND,
         )
 
-    if file.user_id == user.id or user.role == 'admin' or await has_access_to_file(id, 'read', user, db=db):
+    if file.user_id == user.id or can_bypass_private_content_access(user.role) or await has_access_to_file(id, 'read', user, db=db):
         file_path = file.path
 
         # Handle Unicode filenames
@@ -969,7 +972,7 @@ async def rename_file_by_id(
             detail=ERROR_MESSAGES.NOT_FOUND,
         )
 
-    if file.user_id == user.id or user.role == 'admin' or await has_access_to_file(id, 'write', user, db=db):
+    if file.user_id == user.id or can_bypass_private_content_access(user.role) or await has_access_to_file(id, 'write', user, db=db):
         result = await Files.update_file_name_by_id(id, form_data.filename, db=db)
         if result:
             await publish_event(
@@ -1009,7 +1012,7 @@ async def delete_file_by_id(
             detail=ERROR_MESSAGES.NOT_FOUND,
         )
 
-    if file.user_id == user.id or user.role == 'admin' or await has_access_to_file(id, 'write', user, db=db):
+    if file.user_id == user.id or can_bypass_private_content_access(user.role) or await has_access_to_file(id, 'write', user, db=db):
         # Clean up KB associations and embeddings before deleting
         knowledges = await Knowledges.get_knowledges_by_file_id(id, db=db)
         for knowledge in knowledges:

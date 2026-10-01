@@ -15,3 +15,10 @@ def require_chat_sharing() -> None:
     if not chat_sharing_enabled():
         from fastapi import HTTPException
         raise HTTPException(403, 'Chat sharing is disabled for this private deployment.')
+
+
+def can_bypass_private_content_access(role: str) -> bool:
+    """Attachments must not circumvent the deployment's private-chat policy."""
+    from open_webui.config import BYPASS_ADMIN_ACCESS_CONTROL, ENABLE_ADMIN_CHAT_ACCESS
+
+    return role == 'admin' and BYPASS_ADMIN_ACCESS_CONTROL and ENABLE_ADMIN_CHAT_ACCESS

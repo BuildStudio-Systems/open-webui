@@ -23,6 +23,7 @@ from open_webui.models.chats import Chats
 from open_webui.models.files import Files
 from open_webui.retrieval.web.utils import get_ssrf_safe_session, validate_url
 from open_webui.routers.files import upload_file_handler
+from open_webui.utils.chat_privacy import can_bypass_private_content_access
 from open_webui.utils.access_control.files import has_access_to_file
 from open_webui.routers.images import (
     get_image_data,
@@ -206,10 +207,10 @@ async def get_image_base64_from_file_id(id: str, user=None) -> Optional[str]:
     # A caller could place another user's file_id in an image_url field;
     # without this check the server reads the file from disk, inlines it
     # base64 into the LLM request, and the content leaks via OCR/describe.
-    # Owner, admin, and explicit read-grant holders are allowed.
+    # Ownership, explicit grants, or the configured admin policy are required.
     if user is None:
         return None
-    if file.user_id != user.id and user.role != 'admin' and not await has_access_to_file(file.id, 'read', user):
+    if file.user_id != user.id and not can_bypass_private_content_access(user.role) and not await has_access_to_file(file.id, 'read', user):
         return None
 
     try:

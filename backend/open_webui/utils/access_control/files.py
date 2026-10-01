@@ -1,5 +1,6 @@
 import logging
 
+from open_webui.utils.chat_privacy import chat_sharing_enabled, can_bypass_private_content_access
 from open_webui.models.access_grants import AccessGrants
 from open_webui.models.channels import Channels
 from open_webui.models.chats import Chats
@@ -30,8 +31,8 @@ async def has_access_to_file(
     - Channels the user is a member of
     - Shared chats
 
-    NOTE: This does NOT check direct file ownership — callers should check
-    file.user_id == user.id separately before calling this.
+    Direct ownership is checked first; no implicit administrator bypass.
+    Chat-derived grants apply only while deployment chat sharing is enabled.
     """
     file = await Files.get_file_by_id(file_id, db=db)
     log.debug('Checking if user has %s access to file', access_type)
@@ -91,7 +92,10 @@ async def has_access_to_file(
         return True
 
     # Check if the file is associated with any chats the user has access to
-    shared_chat_ids = await Chats.get_shared_chat_ids_by_file_id(file_id, db=db)
+    shared_chat_ids = (
+        await Chats.get_shared_chat_ids_by_file_id(file_id, db=db)
+        if access_type == 'read' and chat_sharing_enabled() else []
+    )
     if access_type == 'read' and shared_chat_ids:
         accessible_ids = await AccessGrants.get_accessible_resource_ids(
             user_id=user.id,
@@ -142,7 +146,7 @@ async def get_accessible_folder_files(
         for entry in entries
         if isinstance(entry, dict) and entry.get('type') in FOLDER_FILE_TYPES and entry.get('id')
     ]
-    if user.role == 'admin':
+    if can_bypass_private_content_access(user.role):
         return entries
 
     if user_group_ids is None:

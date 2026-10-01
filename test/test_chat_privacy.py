@@ -42,7 +42,7 @@ async def setup_api(h,monkeypatch):
         await db.flush()
         db.add(SharedChat(id='snapshot',chat_id='source',user_id='alice',chat=payload,title='private fixture',created_at=1,updated_at=1))
         await db.commit()
-        await AccessGrants.set_access_grants('shared_chat','source',[{'principal_type':'anyone','permission':'read'}],db=db)
+        await AccessGrants.set_access_grants('shared_chat','source',[{'principal_type':'user','principal_id':'*','permission':'read'}],db=db)
     return api
 
 
@@ -92,7 +92,7 @@ def test_publication_denied_but_revocation_and_private_chat_survive(modules,monk
                 headers={'X-Test-User':who}
                 r=await h.client.post('/api/v1/chats/source/share',headers=headers)
                 assert r.status_code==403
-                r=await h.client.post('/api/v1/chats/shared/source/access/update',headers=headers,json={'access_grants':[{'principal_type':'anyone','permission':'read'}]})
+                r=await h.client.post('/api/v1/chats/shared/source/access/update',headers=headers,json={'access_grants':[{'principal_type':'user','principal_id':'*','permission':'read'}]})
                 assert r.status_code==403
             r=await h.client.post('/api/v1/chats/shared/source/access/update',headers={'X-Test-User':'alice'},json={'access_grants':[]})
             assert r.status_code==200,r.text

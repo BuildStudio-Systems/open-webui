@@ -107,9 +107,11 @@ async def _has_read_access_to_file(
     model_knowledge: Optional[list[dict]] = None,
 ) -> bool:
     """Check if a user can read a file via ownership, admin role, model attachment, or access grants."""
+    from open_webui.utils.chat_privacy import can_bypass_private_content_access
+
     user_id = user.get('id')
     user_role = user.get('role', 'user')
-    if file.user_id == user_id or user_role == 'admin':
+    if file.user_id == user_id or can_bypass_private_content_access(user_role):
         return True
     if model_knowledge and any(item.get('type') == 'file' and item.get('id') == file.id for item in model_knowledge):
         return True

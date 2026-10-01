@@ -424,7 +424,7 @@
 					</div>
 				{/if}
 
-				{#if isAudio || isPDF || isExcel || isCode || isMarkdown || isDocx || isPptx}
+				{#if isCode || isMarkdown || (item?.type === 'file' && (isAudio || isPDF || isExcel || isDocx || isPptx))}
 					<div
 						class="flex mb-2.5 scrollbar-none overflow-x-auto w-full border-b border-gray-50 dark:border-gray-850/30 text-center text-sm font-normal bg-transparent dark:text-gray-200"
 					>
@@ -450,7 +450,7 @@
 					</div>
 				{/if}
 
-				{#if isImage}
+				{#if isImage && item?.type === 'file'}
 					<div class="relative w-full max-h-[70vh] overflow-hidden">
 						<div class="absolute top-2 right-2 z-10">
 							<Tooltip content={$i18n.t('Reset view')}>

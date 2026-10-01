@@ -1149,12 +1149,6 @@
 				onUpdate({ file: fileItem });
 				return null;
 			} else {
-				console.log('Extracted content from file:', {
-					name: file.name,
-					size: file.size,
-					content: content
-				});
-
 				fileItem.status = 'uploaded';
 				fileItem.type = 'text';
 				fileItem.content = content;

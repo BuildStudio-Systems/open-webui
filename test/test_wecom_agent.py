@@ -1,9 +1,10 @@
 import importlib.util
+import json
 from pathlib import Path
 import sys
 from types import SimpleNamespace
 import unittest
-from unittest.mock import AsyncMock,patch
+from unittest.mock import AsyncMock,MagicMock,patch
 
 import httpx
 from fastapi import HTTPException
@@ -29,22 +30,56 @@ class WeComAgentTests(unittest.IsolatedAsyncioTestCase):
         chats=SimpleNamespace(get_chat_by_id=AsyncMock(return_value=None),insert_new_chat=AsyncMock(return_value=True),upsert_message_to_chat_by_id_and_message_id=AsyncMock(side_effect=lambda *a:saved.append(a) or True))
         users=SimpleNamespace(get_user_by_id=AsyncMock(return_value=SimpleNamespace(role='admin')))
         grant=httpx.Response(200,json={'owner':'owner','capability':'test-proof'},request=httpx.Request('POST','http://test'))
-        completion=httpx.Response(200,json={'choices':[{'message':{'content':'private 192.168.1.1 credential-canary'}}]},request=httpx.Request('POST','http://test'))
         client=AsyncMock();client.__aenter__.return_value=client
-        client.post.side_effect=[grant,completion]
+        client.post.return_value=grant
+        response=self.stream_response('private 192.168.1.1 credential-canary',tool=True)
+        context=AsyncMock();context.__aenter__.return_value=response
+        client.stream=MagicMock(return_value=context)
         models={'open_webui.models.chats':SimpleNamespace(Chats=chats,ChatForm=lambda **kw:kw),'open_webui.models.users':SimpleNamespace(Users=users)}
         with patch.dict(sys.modules,models),patch.object(module.httpx,'AsyncClient',return_value=client):
             result=await module.execute(self.config,'d'*64,'Check device')
             self.assertEqual(result['state'],'completed')
             self.assertNotIn('private',str(result));self.assertNotIn('canary',str(result))
             self.assertIn('credential-canary',saved[0][2]['content'])
-            headers=client.post.call_args.kwargs['headers']
+            headers=client.stream.call_args.kwargs['headers']
             self.assertEqual(headers['X-BuildStudio-Device-Capability'],'test-proof')
-            chats.get_chat_by_id.return_value=SimpleNamespace(user_id='owner',meta={'wecom_event':'d'*64})
-            client.post.side_effect=[grant]
+            chats.get_chat_by_id.return_value=SimpleNamespace(user_id='owner',meta={'wecom_event':'d'*64},chat={'history':{'messages':{'a':saved[0][2]}}})
             repeated=await module.execute(self.config,'d'*64,'Changed retry text')
             self.assertTrue(repeated['duplicate'])
-            self.assertEqual(client.post.call_count,3)
+            self.assertEqual(client.post.call_count,2)
+            self.assertEqual(client.stream.call_count,1)
+            self.assertEqual(repeated['reply'],result['reply'])
+
+    @staticmethod
+    def stream_response(content,tool=False,finish='stop'):
+        async def lines():
+            if tool:
+                for line in ['event: hermes.tool.progress','data: {"status":"running","tool":"there_devices"}','']:yield line
+            for value in [{'choices':[{'delta':{'content':content},'finish_reason':None}]},{'choices':[{'delta':{},'finish_reason':finish}]}]:
+                yield 'data: '+json.dumps(value);yield ''
+            yield 'data: [DONE]';yield ''
+        return SimpleNamespace(raise_for_status=lambda:None,aiter_lines=lines)
+
+    async def test_stream_and_output_privacy(self):
+        content,tools=await module.read_agent_stream(self.stream_response('Hello!'))
+        self.assertFalse(tools)
+        self.assertEqual(module.public_reply(content,tools,self.config,'chat'),'Hello!')
+        for secret in ['internal 10.0.0.4','[device](http://host.lan)','password=hidden','SSH /root/private','a'*64]:
+            self.assertNotIn(secret,module.public_reply(secret,False,self.config,'chat'))
+        self.assertNotIn('raw tool result',module.public_reply('raw tool result',True,self.config,'chat'))
+        with self.assertRaises(ValueError):await module.read_agent_stream(self.stream_response('partial',finish='error'))
+
+    async def test_history_uses_only_bound_public_replies_in_order(self):
+        def row(event,previous,user,reply):
+            return SimpleNamespace(user_id='owner',meta={'wecom_event':event,'channel':'wecom','wecom_previous':previous},chat={'history':{'messages':{'u':{'role':'user','content':user},'a':{'role':'assistant','content':'NEVER-IMPORT-PRIVATE','wecom_reply':reply,'done':True}}}})
+        chats=SimpleNamespace(get_chat_by_id=AsyncMock(side_effect=[row('e'*64,'d'*64,'second','answer2'),row('d'*64,None,'first','answer1')]))
+        history=await module.recent_context(chats,self.config,'e'*64)
+        self.assertEqual([m['content'] for m in history],['first','answer1','second','answer2'])
+        self.assertNotIn('NEVER-IMPORT',str(history))
+        bad=row('e'*64,None,'x','y');bad.user_id='other'
+        chats.get_chat_by_id=AsyncMock(return_value=bad)
+        with self.assertRaises(HTTPException):await module.recent_context(chats,self.config,'e'*64)
+        self.assertEqual(await module.recent_context(chats,self.config,None),[])
 
     async def test_central_revocation_stops_before_chat_or_agent(self):
         chats=SimpleNamespace(get_chat_by_id=AsyncMock())

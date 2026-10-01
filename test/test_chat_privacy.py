@@ -71,6 +71,13 @@ def test_old_public_snapshot_is_owner_only_and_cannot_be_cloned(modules,monkeypa
             async with h.sessions() as db:
                 assert await models.Chats.get_chat_by_id_for_user('source',SimpleNamespace(id='bob',role='user'),db=db) is None
                 assert await models.Chats.get_chat_by_id_for_user('source',SimpleNamespace(id='alice',role='user'),db=db) is not None
+                # Internal/task metadata must not override the disabled admin
+                # privacy flag: those conversations can also contain receipts.
+                row = await db.get(models.Chat, 'source')
+                row.meta = {'internal': True}
+                await db.commit()
+                assert await models.Chats.get_chat_by_id_for_user('source',SimpleNamespace(id='admin',role='admin'),db=db) is None
+                assert await models.Chats.get_chat_by_id_for_user('source',SimpleNamespace(id='alice',role='user'),db=db) is not None
     asyncio.run(run())
 
 

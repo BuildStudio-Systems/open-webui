@@ -1768,7 +1768,7 @@ class ChatTable:
         if not chat:
             return None
 
-        if user.role == 'admin' and (ENABLE_ADMIN_CHAT_ACCESS or is_internal_chat(chat.meta)):
+        if user.role == 'admin' and ENABLE_ADMIN_CHAT_ACCESS:
             return chat
 
         # Old grants/folder shares must not expose the live conversation when

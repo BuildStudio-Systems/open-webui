@@ -1,3 +1,4 @@
+import json
 import logging
 import re
 from typing import Optional
@@ -418,10 +419,13 @@ async def generate_queries(request: Request, form_data: dict, user=Depends(get_v
                 detail=ERROR_MESSAGES.FEATURE_DISABLED('Query generation'),
             )
 
-    if getattr(request.state, 'cached_queries', None):
-        cached_queries = request.state.cached_queries
+    cached_queries = getattr(request.state, 'cached_queries', None)
+    if isinstance(cached_queries, list) and all(isinstance(q, str) for q in cached_queries):
         log.info('Reusing cached search queries: count=%s', len(cached_queries))
-        return cached_queries
+        # Callers consume a completion envelope, not the internal query list.
+        # An empty cached list is an intentional no-search result as well.
+        return {'choices': [{'message': {'role': 'assistant', 'content':
+            json.dumps({'queries': cached_queries}, ensure_ascii=False)}}]}
 
     if getattr(request.state, 'direct', False) and hasattr(request.state, 'model'):
         models = {

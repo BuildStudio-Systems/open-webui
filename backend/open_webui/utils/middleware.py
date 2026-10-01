@@ -2051,11 +2051,20 @@ async def chat_completion_files_handler(
 
     files = [item for item in (body.get('metadata', {}).get('files', None) or []) if item.get('type') != 'filesystem']
     if files:
+        try:
+            rag_config = await Config.get_many(
+                'rag.top_k', 'rag.top_k_reranker', 'rag.relevance_threshold',
+                'rag.hybrid_bm25_weight', 'rag.enable_hybrid_search', 'rag.full_context',
+            )
+        except Exception:
+            log.warning('File-context configuration unavailable')
+            return body, {'sources': sources}
         # Check if all files are in full context mode
         all_full_context = all(item.get('context') == 'full' for item in files)
+        full_context = all_full_context or rag_config.get('rag.full_context', False)
 
         queries = []
-        if not all_full_context:
+        if not full_context:
             try:
                 queries_response = await generate_queries(
                     request,
@@ -2100,15 +2109,6 @@ async def chat_completion_files_handler(
             queries = [get_last_user_message(body['messages']) or '']
 
         try:
-            # One batched SELECT instead of six sequential round trips.
-            rag_config = await Config.get_many(
-                'rag.top_k',
-                'rag.top_k_reranker',
-                'rag.relevance_threshold',
-                'rag.hybrid_bm25_weight',
-                'rag.enable_hybrid_search',
-                'rag.full_context',
-            )
             # Directly await async get_sources_from_items (no thread needed - fully async now)
             sources = await get_sources_from_items(
                 request=request,
@@ -2127,7 +2127,7 @@ async def chat_completion_files_handler(
                 r=rag_config.get('rag.relevance_threshold'),
                 hybrid_bm25_weight=rag_config.get('rag.hybrid_bm25_weight'),
                 hybrid_search=rag_config.get('rag.enable_hybrid_search'),
-                full_context=all_full_context or rag_config.get('rag.full_context'),
+                full_context=full_context,
                 user=user,
             )
         except Exception:

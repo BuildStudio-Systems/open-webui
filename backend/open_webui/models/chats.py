@@ -16,6 +16,7 @@ from open_webui.models.automations import AutomationRun
 from open_webui.models.chat_messages import ChatMessage, ChatMessages
 from open_webui.models.folders import Folders
 from open_webui.models.tags import Tag, TagModel, Tags
+from open_webui.utils.chat_privacy import chat_sharing_enabled
 from open_webui.utils.misc import get_output_text, sanitize_data_for_db, sanitize_text_for_db
 from pydantic import BaseModel, ConfigDict, field_validator
 from sqlalchemy import (
@@ -1769,6 +1770,11 @@ class ChatTable:
 
         if user.role == 'admin' and (ENABLE_ADMIN_CHAT_ACCESS or is_internal_chat(chat.meta)):
             return chat
+
+        # Old grants/folder shares must not expose the live conversation when
+        # link sharing is disabled. Owner and explicit admin policy are above.
+        if not chat_sharing_enabled():
+            return None
 
         if await AccessGrants.has_access(
             user_id=user.id,

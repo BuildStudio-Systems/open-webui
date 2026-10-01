@@ -45,9 +45,16 @@ async def handle(request):
     except (OSError,ValueError):
         raise HTTPException(503, 'Channel is not configured.') from None
     authenticate(request,config)
-    if int(request.headers.get('content-length','0')) > 20000:
-        raise HTTPException(413, 'Message too large.')
-    event_id,text = validate(await request.json())
+    raw = bytearray()
+    async for chunk in request.stream():
+        raw.extend(chunk)
+        if len(raw) > 20000:
+            raise HTTPException(413, 'Message too large.')
+    try:
+        body = json.loads(raw)
+    except (ValueError, UnicodeError):
+        raise HTTPException(400, 'Invalid channel message.') from None
+    event_id,text = validate(body)
     if _admission.locked():
         raise HTTPException(429, 'Agent channel is busy.')
     async with _admission:

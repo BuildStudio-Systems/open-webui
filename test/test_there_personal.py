@@ -7,6 +7,44 @@ from types import SimpleNamespace
 from test_there_api import modules, harness
 
 
+def test_device_receipt_envelopes_are_specific():
+    from open_webui.there_integration.personal_search import DEVICE_RECEIPT_PREFIXES, is_device_receipt
+    for prefix in DEVICE_RECEIPT_PREFIXES:
+        assert is_device_receipt(prefix + 'json\n{}\n```')
+        assert is_device_receipt(prefix + '`json\n{}\n````')
+        assert not is_device_receipt('Explanation: ' + prefix + 'json\n{}\n```')
+    assert not is_device_receipt('Device ai status: check systemctl status first.')
+    assert not is_device_receipt(None)
+
+
+def test_auto_context_excludes_receipts_before_ranking_but_manual_search_keeps_them(modules, monkeypatch, tmp_path):
+    async def run():
+        from open_webui.models.chats import Chat
+        from open_webui.there_integration.personal import history_page, personal_sources
+        from open_webui.there_integration.personal_search import DEVICE_RECEIPT_PREFIXES
+        async with harness(modules, monkeypatch, tmp_path) as h:
+            async with h.sessions() as db:
+                db.add(Chat(id='current', user_id='alice', title='current', chat={},
+                            meta={}, created_at=1, updated_at=20))
+                answers = ['Device ai status troubleshooting notes.'] + [
+                    p + 'json\n{"request":{"action":"inspect","device":"ai"},"response":{"state":"succeeded"}}\n```'
+                    for p in DEVICE_RECEIPT_PREFIXES]
+                for owner in ('alice', 'bob'):
+                    for i, answer in enumerate(answers):
+                        db.add(Chat(id=f'{owner}-{i}', user_id=owner, title='fixture', meta={},
+                            chat={'history': {'messages': {
+                                'q': {'role': 'user', 'content': 'device ai status'},
+                                'a': {'role': 'assistant', 'content': answer, 'parentId': 'q', 'done': True}}}},
+                            created_at=1, updated_at=i+1))
+                await db.commit()
+                manual = await history_page(db, 'alice', query='device ai status')
+                assert {x['chat_id'] for x in manual['items']} == {f'alice-{i}' for i in range(4)}
+                sources = await personal_sources(SimpleNamespace(id='alice'), 'current', 'device ai status', db=db)
+                assert [s['metadata'][0]['chat_id'] for s in sources] == ['alice-0']
+                assert len((await history_page(db, 'alice', query='device ai status'))['items']) == 4
+    asyncio.run(run())
+
+
 def test_personal_isolation_and_audit(modules, monkeypatch, tmp_path):
     async def run():
         from open_webui.models.chats import Chat

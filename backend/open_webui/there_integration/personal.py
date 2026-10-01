@@ -9,6 +9,7 @@ from open_webui.internal.db import get_async_db_context
 from open_webui.models.access_grants import AccessGrant
 from open_webui.models.chats import Chat
 from open_webui.models.chat_messages import ChatMessage
+from open_webui.there_integration.personal_search import is_device_receipt
 
 
 @asynccontextmanager
@@ -91,11 +92,13 @@ async def conversation_page(db, owner_id, *, query='', page=1, limit=20):
                 scope='personal', scanned_conversations=min(len(chats), limit))
 
 
-async def search_history(db, owner_id, *, query='', terms=None, exclude_id='', page=1, limit=20):
+async def search_history(db, owner_id, *, query='', terms=None, exclude_id='', page=1, limit=20,
+                         exclude_device_receipts=False):
     if db.get_bind().dialect.name == 'postgresql':
         from open_webui.there_integration.personal_search import search_pairs
         return await search_pairs(db, owner_id, query=query, terms=terms,
-                                  exclude_id=exclude_id, page=page, limit=limit)
+                                  exclude_id=exclude_id, page=page, limit=limit,
+                                  exclude_device_receipts=exclude_device_receipts)
     # SQLite is used only for development/testing. Match the PostgreSQL contract
     # against all owned conversations, using the same canonical extraction.
     items = []
@@ -103,7 +106,9 @@ async def search_history(db, owner_id, *, query='', terms=None, exclude_id='', p
     while True:
         batch = await conversation_page(db, owner_id, query=query, page=cursor, limit=100)
         for item in batch['items']:
-            if item['chat_id'] != exclude_id:
+            if item['chat_id'] != exclude_id and not (
+                exclude_device_receipts and is_device_receipt(item['answer'])
+            ):
                 items.append(item)
         if not batch['has_more']:
             break
@@ -155,7 +160,8 @@ async def personal_sources(user, chat_id, query, *, db=None):
             AccessGrant.resource_type == 'chat', AccessGrant.resource_id == chat_id).limit(1))
         if shared:
             return []
-        page = await search_history(session, user.id, terms=terms, exclude_id=chat_id, limit=3)
+        page = await search_history(session, user.id, terms=terms, exclude_id=chat_id, limit=3,
+                                    exclude_device_receipts=True)
         sources = []
         for item in page['items']:
             source_id = '/c/' + item['chat_id']

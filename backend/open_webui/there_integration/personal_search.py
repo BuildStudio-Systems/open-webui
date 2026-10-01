@@ -7,6 +7,19 @@ import asyncio
 from sqlalchemy import text
 
 
+# These identify the deterministic Agent receipt envelope, not ordinary Q&A
+# that discusses devices. Keep full/manual history search unchanged.
+DEVICE_RECEIPT_PREFIXES = tuple(intro + '\n\n```' for intro in (
+    'Actual device-tool receipts for this turn follow. Any requested result not listed remains unverified. Registered recipe counts are not counts of tested operations.',
+    '以下为本轮设备工具的实际回执；未列出的请求结果尚未确认。登记的操作数量不代表全部操作均已测试。',
+    '今回のデバイスツール実行記録です。以下にない要求の結果は未確認です。',
+))
+
+
+def is_device_receipt(answer):
+    return isinstance(answer, str) and answer.startswith(DEVICE_RECEIPT_PREFIXES)
+
+
 # Filter ownership before expanding messages. An explicitly present empty
 # history is authoritative; legacy/normalized fallback must not revive it.
 PAIR_CTE = """
@@ -72,10 +85,21 @@ WITH owned AS MATERIALIZED (
 """
 
 
-async def search_pairs(db, owner_id, *, query='', terms=None, exclude_id='', page=1, limit=20):
+async def search_pairs(db, owner_id, *, query='', terms=None, exclude_id='', page=1, limit=20,
+                       exclude_device_receipts=False):
     """Search all owned history, then paginate/rank matches; never cap by age."""
     params = dict(owner_id=owner_id, exclude_id=exclude_id, offset=(page - 1) * limit,
                   row_limit=limit + 1, needle=query.strip().lower())
+    cte, relation = PAIR_CTE, 'pairs'
+    if exclude_device_receipts:
+        # Filter before ranking/pagination so receipts cannot crowd useful Q&A
+        # out of the three automatic context slots. All values remain bound.
+        predicates = []
+        for i, prefix in enumerate(DEVICE_RECEIPT_PREFIXES):
+            params[f'receipt_prefix_{i}'] = prefix
+            predicates.append(f'strpos(answer, :receipt_prefix_{i}) <> 1')
+        cte += ', eligible AS (SELECT * FROM pairs WHERE ' + ' AND '.join(predicates) + ')'
+        relation = 'eligible'
     if terms:
         terms = terms[:64]
         # Only parameter names are generated, never SQL from user input.
@@ -84,15 +108,15 @@ async def search_pairs(db, owner_id, *, query='', terms=None, exclude_id='', pag
             for i in range(len(terms)))
         params.update({f'term_{i}': term.lower() for i, term in enumerate(terms)})
         params['threshold'] = min(2, len(terms))
-        filtered = f", ranked AS (SELECT *, ({score}) AS score FROM pairs) SELECT * FROM ranked WHERE score >= :threshold"
+        filtered = f", ranked AS (SELECT *, ({score}) AS score FROM {relation}) SELECT * FROM ranked WHERE score >= :threshold"
         ordering = 'score DESC, updated_at DESC, chat_id DESC, message_id'
     else:
-        filtered = " SELECT * FROM pairs WHERE strpos(lower(question || E'\\n' || answer), :needle) > 0"
+        filtered = f" SELECT * FROM {relation} WHERE strpos(lower(question || E'\\n' || answer), :needle) > 0"
         ordering = 'updated_at DESC, chat_id DESC, message_id'
     # The database query has a bounded wall-clock budget and result size. A
     # timeout is not represented as a successful empty result.
     async with asyncio.timeout(5):
-        rows = (await db.execute(text(PAIR_CTE + filtered +
+        rows = (await db.execute(text(cte + filtered +
             f' ORDER BY {ordering} OFFSET :offset LIMIT :row_limit'), params)).mappings().all()
     items = []
     for row in rows[:limit]:

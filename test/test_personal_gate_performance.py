@@ -83,7 +83,8 @@ class PersonalGateTests(unittest.IsolatedAsyncioTestCase):
             result = await self.sources(SimpleNamespace(id='alice'), 'owned', 'test', db=session)
         self.assertEqual(TranscriptJSON.reads, 0)
         self.assertEqual(result[0]['metadata'][0]['chat_id'], 'past')
-        self.assertEqual(self.searches, [('alice', {'terms': ['test'], 'exclude_id': 'owned', 'limit': 3})])
+        self.assertEqual(self.searches, [('alice', {'terms': ['test'], 'exclude_id': 'owned', 'limit': 3,
+                                                 'exclude_device_receipts': True})])
 
     async def test_all_destination_denials_still_precede_retrieval(self):
         for case in ('foreign', 'admin_foreign', 'missing', 'shared', 'internal', 'timer', 'grant', 'empty'):

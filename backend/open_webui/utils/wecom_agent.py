@@ -114,7 +114,8 @@ def authenticate(request, config):
 
 
 def validate(body):
-    if (not isinstance(body,dict) or not {'event_id','text'} <= set(body) or set(body)-{'event_id','text','previous_event_id'}
+    if (not isinstance(body,dict) or not {'event_id','text'} <= set(body) or set(body)-{'event_id','text','previous_event_id','monitor_node'}
+            or ('monitor_node' in body and (not isinstance(body['monitor_node'],str) or body['monitor_node'] not in {'ai','backend','db','web','monitoring','gateway-jp','gateway-hk'}))
             or not isinstance(body['event_id'],str) or not re.fullmatch(r'[a-f0-9]{64}',body['event_id'])
             or not isinstance(body['text'],str) or not 1 <= len(body['text'].strip()) <= 4000
             or (body.get('previous_event_id') is not None and (not isinstance(body['previous_event_id'],str) or not re.fullmatch(r'[a-f0-9]{64}',body['previous_event_id'])))):
@@ -144,17 +145,17 @@ async def handle(request):
     if _admission.locked():
         raise HTTPException(429, 'Agent channel is busy.')
     async with _admission:
-        return await execute(config,event_id,text,body.get('previous_event_id'))
+        return await execute(config,event_id,text,body.get('previous_event_id'),monitor_node=body.get('monitor_node'))
 
 
-async def execute(config,event_id,text,previous=None):
+async def execute(config,event_id,text,previous=None,monitor_node=None):
     from open_webui.models.chats import Chats,ChatForm
     from open_webui.models.users import Users
     chat_id = conversation_id(config,event_id)
     async with httpx.AsyncClient(trust_env=False,follow_redirects=False,timeout=6) as client:
         try:
             response = await client.post('http://127.0.0.1:8743/v1/channel/session',
-                json={'binding':config['binding'],'chat':chat_id},
+                json={'binding':config['binding'],'chat':chat_id,**({'monitor_device':monitor_node} if monitor_node else {})},
                 headers={'Authorization':'Bearer '+config['broker_key']})
             if response.status_code != 200:
                 raise HTTPException(403 if response.status_code==403 else 503,'Channel authorization unavailable.')

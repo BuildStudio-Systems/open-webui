@@ -15,6 +15,11 @@ module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
 
 
 class WeComAgentTests(unittest.IsolatedAsyncioTestCase):
+    def test_monitor_node_is_fixed_allowlist(self):
+        body={'event_id':'d'*64,'text':'review'}
+        self.assertEqual(module.validate({**body,'monitor_node':'monitoring'}),('d'*64,'review'))
+        for value in ['unknown','router-main',[],None]:
+            with self.assertRaises(HTTPException):module.validate({**body,'monitor_node':value})
     def setUp(self):
         self.config={'bridge_key':'a'*64,'owner':'owner','binding':'b'*64,'broker_key':'c'*64,'agent_key':'test-agent'}
 

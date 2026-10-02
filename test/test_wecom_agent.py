@@ -1,3 +1,4 @@
+import asyncio
 import importlib.util
 import json
 from pathlib import Path
@@ -49,6 +50,30 @@ class WeComAgentTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(client.post.call_count,2)
             self.assertEqual(client.stream.call_count,1)
             self.assertEqual(repeated['reply'],result['reply'])
+
+    async def test_heartbeat_stream_has_total_deadline_and_saves_unconfirmed(self):
+        saved=[]
+        chats=SimpleNamespace(get_chat_by_id=AsyncMock(return_value=None),insert_new_chat=AsyncMock(return_value=True),upsert_message_to_chat_by_id_and_message_id=AsyncMock(side_effect=lambda *a:saved.append(a) or True))
+        users=SimpleNamespace(get_user_by_id=AsyncMock(return_value=SimpleNamespace(role='admin')))
+        client=AsyncMock();client.__aenter__.return_value=client
+        client.post.return_value=httpx.Response(200,json={'owner':'owner','capability':'test-proof'},request=httpx.Request('POST','http://test'))
+        closed=asyncio.Event()
+        async def heartbeats():
+            try:
+                while True:
+                    yield ': heartbeat'
+                    await asyncio.sleep(0.002)
+            finally:closed.set()
+        response=SimpleNamespace(raise_for_status=lambda:None,aiter_lines=heartbeats)
+        context=AsyncMock();context.__aenter__.return_value=response;client.stream=MagicMock(return_value=context)
+        models={'open_webui.models.chats':SimpleNamespace(Chats=chats,ChatForm=lambda **kw:kw),'open_webui.models.users':SimpleNamespace(Users=users)}
+        with patch.dict(sys.modules,models),patch.object(module.httpx,'AsyncClient',return_value=client),patch.object(module,'AGENT_TOTAL_TIMEOUT',0.02):
+            result=await asyncio.wait_for(module.execute(self.config,'a'*64,'Read metadata'),1)
+        self.assertEqual(result['state'],'unconfirmed')
+        self.assertTrue(closed.is_set())
+        self.assertTrue(saved[0][2]['done'])
+        self.assertEqual(client.stream.call_count,1)
+        self.assertIn('尚未确认',result['reply'])
 
     @staticmethod
     def stream_response(content,tool=False,finish='stop'):

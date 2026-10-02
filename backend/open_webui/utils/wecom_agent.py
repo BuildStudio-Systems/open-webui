@@ -16,6 +16,7 @@ import httpx
 from fastapi import HTTPException
 
 _admission = asyncio.Lock()
+AGENT_TOTAL_TIMEOUT = 240  # Heartbeats must not keep the single channel busy forever.
 RESET = {'新对话', '开始新对话', '/new', '/reset'}
 CHAT_PROMPT = ('You are There, talking directly with your owner in a private WeCom chat. '
     'Reply naturally in the language used by the owner. Use the supplied recent conversation '
@@ -197,7 +198,7 @@ async def execute(config,event_id,text,previous=None):
         if text in RESET:
             content='已开始新对话。你可以直接在这里和我聊天。'
         else:
-          async with httpx.AsyncClient(trust_env=False,follow_redirects=False,timeout=httpx.Timeout(290,read=290)) as client:
+          async with asyncio.timeout(AGENT_TOTAL_TIMEOUT), httpx.AsyncClient(trust_env=False,follow_redirects=False,timeout=httpx.Timeout(290,read=290)) as client:
             async with client.stream('POST','http://127.0.0.1:8642/v1/chat/completions',
                 headers={'Authorization':'Bearer '+config['agent_key'],
                          'X-BuildStudio-Chat-Id':chat_id,'X-BuildStudio-User-Id':owner,
@@ -205,7 +206,7 @@ async def execute(config,event_id,text,previous=None):
                          'Idempotency-Key':'wecom-'+event_id},
                 json={'model':'there-agent','stream':True,'messages':[{'role':'system','content':CHAT_PROMPT},*history,{'role':'user','content':text}]}) as response:
                 content,tool_used=await read_agent_stream(response)
-    except (httpx.HTTPError,ValueError,KeyError,IndexError,TypeError):
+    except (TimeoutError,httpx.HTTPError,ValueError,KeyError,IndexError,TypeError):
         state = 'unconfirmed'
     reply=public_reply(content,tool_used,config,chat_id)
     saved = await Chats.upsert_message_to_chat_by_id_and_message_id(chat_id,assistant_id,

@@ -34,12 +34,18 @@ def public_reply(content, tool_used, config, chat_id):
     # Withhold the entire tool-derived result; regex alone cannot scrub topology.
     sensitive = tool_used or any(isinstance(v,str) and len(v)>=16 and v in content
         for k,v in config.items() if k.endswith('_key') or k in {'owner','binding'})
-    patterns = [r'\b(?:\d{1,3}\.){3}\d{1,3}\b', r'(?i)\b(?:[a-f0-9]{0,4}:){2,}[a-f0-9:]+',
+    patterns = [r'\b(?:\d{1,3}\.){3}\d{1,3}\b',
         r'(?i)\b[\w.-]+\.(?:local|lan|internal)\b', r'(?i)\b(?:password|passwd|secret|api[_ -]?key|token)\s*[:=]\s*\S+',
         r'-----BEGIN [A-Z ]*PRIVATE KEY-----',r'(?i)\b(?:ssh-rsa|ssh-ed25519)\s+',
-        r'(?i)(?:[a-z]:[\\/]|/(?:etc|home|root|var|opt|proc|run|mnt)/)',
-        r'(?i)\b(?:gateway-(?:jp|hk)|router-main|switch-main|buildstudio-aiserver)\b']
-    sensitive = sensitive or any(re.search(p,content) for p in patterns)
+        # Drive letters (C:\) and private system paths; a letter inside "https://"
+        # is not a drive letter, so public links stay readable.
+        r'(?i)(?:(?<![a-z0-9])[a-z]:[\\/]|/(?:etc|home|root|var|opt|proc|run|mnt)/)',
+        r'(?i)\b(?:gateway-(?:jp|hk)|router-main|switch-main|buildstudio-(?:aiserver|monitoring)|(?:ai|backend|web|db)server)\b']
+    sensitive = sensitive or any(re.search(p,content) for p in patterns) or any(
+        # IPv6 needs "::", a hex letter or five-plus groups; "02:34:20" and
+        # "1:2:3" are clock times and ratios, not addresses.
+        '::' in m or re.search(r'[a-f]',m,re.I) or m.count(':')>=4
+        for m in re.findall(r'(?i)\b(?:[a-f0-9]{0,4}:){2,}[a-f0-9:]+',content))
     if sensitive:
         return '这次处理涉及工具结果或受保护的信息，详情已保存到你的私有会话：\nhttps://buildstudio-there.com/c/'+chat_id
     # Keep below both proactive and stream limits, without splitting UTF-8.

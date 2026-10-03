@@ -94,9 +94,13 @@ class WeComAgentTests(unittest.IsolatedAsyncioTestCase):
         content,tools=await module.read_agent_stream(self.stream_response('Hello!'))
         self.assertFalse(tools)
         self.assertEqual(module.public_reply(content,tools,self.config,'chat'),'Hello!')
-        for secret in ['internal 10.0.0.4','[device](http://host.lan)','password=hidden','SSH /root/private','a'*64]:
+        for secret in ['internal 10.0.0.4','[device](http://host.lan)','password=hidden','SSH /root/private','a'*64,
+                       'fe80::1','2404:1a8:7f01:a::3','2001:4860:4860:0:0:0:0:8888','C:\\Users\\x','on backendserver','user buildstudio-monitoring']:
             self.assertNotIn(secret,module.public_reply(secret,False,self.config,'chat'))
         self.assertNotIn('raw tool result',module.public_reply('raw tool result',True,self.config,'chat'))
+        # Review 2026-10-03: clock times, ratios and public links are ordinary chat, not topology.
+        for plain in ['任务在 02:34:20 完成','比例大约是 1:2:3','官网是 https://buildstudio-systems.com/ 欢迎访问','现在是 14:05']:
+            self.assertEqual(module.public_reply(plain,False,self.config,'chat'),plain)
         with self.assertRaises(ValueError):await module.read_agent_stream(self.stream_response('partial',finish='error'))
 
     async def test_history_uses_only_bound_public_replies_in_order(self):

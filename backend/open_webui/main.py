@@ -145,6 +145,7 @@ from open_webui.models.users import Users
 from open_webui.routers import (
     agent_files,
     device_control,
+    finance_intake,
     analytics,
     audio,
     auths,
@@ -853,6 +854,7 @@ app.include_router(notifications.router, prefix='/api/v1/notifications', tags=['
 app.include_router(knowledge.router, prefix='/api/v1/knowledge', tags=['knowledge'])
 app.include_router(there.router, prefix='/api/v1/there', tags=['there'])
 app.include_router(device_control.router, prefix='/api/v1/device-control', tags=['device-control'])
+app.include_router(finance_intake.router, prefix='/api/v1/finance-intake', tags=['finance-intake'])
 app.include_router(there_knowledge.router, prefix='/api/v1/there', tags=['there'])
 app.include_router(there_personal.router, prefix='/api/v1/there', tags=['there'])
 app.include_router(prompts.router, prefix='/api/v1/prompts', tags=['prompts'])
@@ -1297,6 +1299,13 @@ async def chat_completion(
 
         if is_new_chat:
             metadata['chat_id'] = str(uuid4())
+
+        from open_webui.utils.finance_intake import reserve_message
+        business_row = await reserve_message(request, user, metadata, is_new_chat)
+        if business_row:
+            metadata['chat_id'] = business_row['chat_id']
+            if is_new_chat and await Chats.get_chat_by_id(business_row['chat_id']) is not None:
+                is_new_chat = False  # A lost first response retries the same saved business chat.
 
         initial_title_generation = None
         if is_new_chat and tasks and TASKS.TITLE_GENERATION in tasks:

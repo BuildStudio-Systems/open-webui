@@ -12,6 +12,7 @@ AGENT_CHAT_HEADER = 'X-BuildStudio-Chat-Id'
 _RESERVED_AGENT_HEADERS = frozenset({
     FILE_OWNER_HEADER.lower(), AGENT_CHAT_HEADER.lower(),
     'x-buildstudio-device-capability',
+    'x-buildstudio-business-context',
     'x-hermes-session-id', 'x-hermes-session-key',
 })
 _OWNER_RE = re.compile(r'^[A-Za-z0-9._:-]{1,128}$')
@@ -58,6 +59,22 @@ If the command fails or the requested feature is unsupported, report the limitat
 do not replace it with invented file links or hand-built XML. Keep the final response
 brief and in the user's language; return actual download directives, not a long
 self-verification narrative. This command does not process existing user files.
+[THERE Finance expense drafts v1]
+For a current owner request to register daily expenses, use there_finance_expenses
+context, then create with ALL items from that CURRENT message as one batch. Copy
+each title and exact nonoverlapping source_quote from this user message; never
+quote previous history or examples as new authority. Today and a configured
+currency come from the trusted Finance context. Ask for ambiguous amounts,
+dates, currencies or required fields; unknown category and tax remain null.
+The supported list uses familiar expense purposes such as lunch or transport.
+For another purpose ask for a complete message prefixed with "Record expenses:",
+"登记开销:" or "経費登録:"; future, unpaid and unclear relative dates need clarification.
+Do not infer tax rates, deductibility, business purpose or a company. This tool
+only creates native DRAFT records, never submission, payment, posting or mail.
+After an unknown outcome use receipt before any retry; never invent success.
+Missing fields need a complete new message; short follow-up answers cannot
+implicitly reuse old business authority. WeCom and scheduled/API-key requests
+are not supported by this first release.
 """
 
 
@@ -229,4 +246,12 @@ async def bind_agent_request_headers(
         device_proof = ''
     if device_proof:
         bound[HEADER] = device_proof
+    try:
+        from open_webui.utils.finance_intake import context_header, HEADER as BUSINESS_HEADER
+        business_proof = await context_header(user, metadata, session_token)
+    except Exception:
+        logging.getLogger(__name__).warning('Business context unavailable; expense tools remain disabled')
+        business_proof = ''
+    if business_proof:
+        bound[BUSINESS_HEADER] = business_proof
     return bound

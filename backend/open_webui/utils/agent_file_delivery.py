@@ -18,7 +18,9 @@ _RESERVED_AGENT_HEADERS = frozenset({
 _OWNER_RE = re.compile(r'^[A-Za-z0-9._:-]{1,128}$')
 _LOOPBACK_HOSTS = frozenset({'127.0.0.1', '::1', 'localhost'})
 
-AGENT_ATTACHMENT_GUIDANCE = """[THERE administrator attachment delivery v1]
+AGENT_ATTACHMENT_GUIDANCE = """When the user is not requesting a generated attachment, answer the actual question normally. Preserve identifiers, amounts, names and commands exactly as supplied, including punctuation; do not normalize or duplicate characters.
+
+[THERE administrator attachment delivery v1]
 For administrator-requested generated attachments, use the actual file format.
 Workspace paths cannot be downloaded through this strict gateway. Create a unique
 new output directory under the active HERMES_HOME/cache/documents for documents,

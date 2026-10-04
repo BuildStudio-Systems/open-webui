@@ -179,8 +179,8 @@ class RouterTests(unittest.IsolatedAsyncioTestCase):
         owner = SimpleNamespace(id='alice')
         async def get_config(): return config
         async def get_model(_): return 'same-model'
-        async def load(value, headers=None):
-            reads.append((value, headers))
+        async def load(value, headers=None, trusted_base_url=None):
+            reads.append((value, headers, trusted_base_url))
             await asyncio.sleep(0)
             return value.encode(), 'image/png'
         async def upload(request, body, mime, metadata, user):
@@ -209,8 +209,8 @@ class RouterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(submissions), 1)
         self.assertEqual(submissions[0]['json'], {'model': 'same-model', 'prompt': 'same prompt',
                                                'n': 2, 'size': '512x512', 'response_format': 'b64_json'})
-        self.assertEqual(reads, [('https://synthetic.test/1.png', {'Authorization': 'Bearer synthetic-key'}),
-                                ('synthetic-base64', None)])
+        self.assertEqual(reads, [('https://synthetic.test/1.png', {'Authorization': 'Bearer synthetic-key'}, 'https://synthetic.test'),
+                                ('synthetic-base64', None, None)])
         self.assertEqual(result, [{'id': body.decode()} for body in writes])
         self.assertEqual(writes, [b'https://synthetic.test/1.png', b'synthetic-base64'])
 

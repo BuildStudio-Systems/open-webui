@@ -62,9 +62,15 @@ class StudioMiddleware:
     def __init__(self,app): self.app=app
 
     @staticmethod
-    def auth_response_send(path, send):
-        """Keep every human-auth response out of shared and browser caches."""
-        if path != '/api/v1/auths' and not path.startswith('/api/v1/auths/'):
+    def private_response_send(path, send):
+        """Protect dynamic data, including denials, without buffering streams.
+
+        Match complete route families so static bundles retain their cache
+        policy. This is independent of central identity being enabled: native
+        sessions and anonymous errors need the same response protection.
+        """
+        if not any(path == root or path.startswith(root + '/')
+                   for root in ('/api', '/openai', '/ollama', '/cache')):
             return send
 
         async def send_no_store(message):
@@ -109,12 +115,14 @@ class StudioMiddleware:
             await asyncio.gather(task,watcher,return_exceptions=True)
 
     async def __call__(self,scope,receive,send):
-        if not studio.ENABLED or scope['type']!='http':
+        if scope['type']!='http':
+            return await self.app(scope,receive,send)
+        send=self.private_response_send(scope['path'],send)
+        if not studio.ENABLED:
             return await self.app(scope,receive,send)
         request=Request(scope,receive)
         path=scope['path'].rstrip('/')
         method=scope['method']
-        send=self.auth_response_send(path,send)
         try:
             if method=='GET' and path in ('/admin/users','/admin/users/create'):
                 return await RedirectResponse('https://buildstudio-systems.com/admin/',status_code=303)(scope,receive,send)

@@ -115,17 +115,19 @@ def test_every_auth_response_is_no_store(middleware, status):
     asyncio.run(exercise())
 
 
-def test_non_auth_response_cache_policy_is_unchanged(middleware):
+@pytest.mark.parametrize('path', ['/assets/app.js', '/static/logo.png', '/apiary', '/cacheable', '/health'])
+def test_static_and_unrelated_response_cache_policy_is_unchanged(middleware, path):
     module, _ = middleware
     async def exercise():
         messages = []
         async def app(_scope, _receive, send):
-            await send({'type': 'http.response.start', 'status': 401, 'headers': []})
+            await send({'type': 'http.response.start', 'status': 200,
+                        'headers': [(b'cache-control', b'public, max-age=600')]})
             await send({'type': 'http.response.body', 'body': b'{}'})
         async def receive(): return {'type': 'http.request', 'body': b'', 'more_body': False}
         async def send(message): messages.append(message)
-        await module.StudioMiddleware(app)(scope('/api/v1/chats/'), receive, send)
-        assert b'cache-control' not in dict(messages[0]['headers'])
+        await module.StudioMiddleware(app)(scope(path), receive, send)
+        assert dict(messages[0]['headers'])[b'cache-control'] == b'public, max-age=600'
     asyncio.run(exercise())
 
 

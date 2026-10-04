@@ -242,9 +242,12 @@ def normalize_items(value, context, created_at, current_text):
         return {'status':'needs_input','fields':['registration_intent'],'claims':[]}
     if re.search(r'(?<![0-9])[−-]\s*[0-9]|退款|退费|退費|返金|refund|撤销|撤銷|取消登记|cancel|取り消',current_text,re.I):
         return {'status':'needs_input','fields':['expense_intent'],'claims':[]}
-    source_currencies=explicit_currencies(current_text)
-    source_dates=list(dict.fromkeys(re.findall(r'(?<![0-9])[0-9]{4}-[0-9]{2}-[0-9]{2}(?![0-9])',current_text)))
-    relative_date=bool(re.search(r'昨天|昨日|前天|一昨日|上周|上週|上月|先週|先月|yesterday|tomorrow|明天|明日|\blast\s+(?:week|month|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b|\d{1,2}[/月]\d{1,2}',current_text,re.I))
+    # Custom fields are separate evidence: a delivery date or project named
+    # USD must not change the expense's date, currency, or monetary amount.
+    expense_text=';'.join(entry['fragment'] for entry in parsed)
+    source_currencies=explicit_currencies(expense_text)
+    source_dates=list(dict.fromkeys(re.findall(r'(?<![0-9])[0-9]{4}-[0-9]{2}-[0-9]{2}(?![0-9])',expense_text)))
+    relative_date=bool(re.search(r'昨天|昨日|前天|一昨日|上周|上週|上月|先週|先月|yesterday|tomorrow|明天|明日|\blast\s+(?:week|month|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b|\d{1,2}[/月]\d{1,2}',expense_text,re.I))
     for index, raw in enumerate(value, 1):
         if not isinstance(raw, dict) or set(raw) - {'source_quote','title','expense_date','currency','gross_amount','memo','category','tax','extra'}:
             raise IntakeError('invalid_expense_fields', 422)
@@ -270,7 +273,8 @@ def normalize_items(value, context, created_at, current_text):
                 missing.append(f'items.{index}.{key}')
         if item['title']!=parsed[index-1]['purpose']:
             missing.append(f'items.{index}.title')
-        quote_dates=list(dict.fromkeys(re.findall(r'(?<![0-9])[0-9]{4}-[0-9]{2}-[0-9]{2}(?![0-9])',quote)))
+        expense_fragment=parsed[index-1]['fragment']
+        quote_dates=list(dict.fromkeys(re.findall(r'(?<![0-9])[0-9]{4}-[0-9]{2}-[0-9]{2}(?![0-9])',expense_fragment)))
         evidenced_dates=quote_dates or source_dates
         if item['expense_date'] in (None, 'today'):
             item['expense_date']=evidenced_dates[0] if len(evidenced_dates)==1 else today
@@ -278,11 +282,11 @@ def normalize_items(value, context, created_at, current_text):
             if date.fromisoformat(item['expense_date']).isoformat() != item['expense_date']: raise ValueError
             if date.fromisoformat(item['expense_date'])>date.fromisoformat(today): raise ValueError
         except (ValueError, TypeError): missing.append(f'items.{index}.expense_date')
-        if item['expense_date']!=today and item['expense_date'] not in current_text:
+        if item['expense_date']!=today and item['expense_date'] not in expense_text:
             missing.append(f'items.{index}.expense_date')
         if relative_date or len(evidenced_dates)>1 or (evidenced_dates and item['expense_date']!=evidenced_dates[0]):
             missing.append(f'items.{index}.expense_date')
-        quote_currencies=explicit_currencies(quote)
+        quote_currencies=explicit_currencies(expense_fragment)
         evidenced_currencies=quote_currencies or source_currencies
         expected_currency=evidenced_currencies[0] if len(evidenced_currencies)==1 else context.get('default_currency')
         if item['currency'] is None: item['currency']=expected_currency
@@ -294,7 +298,7 @@ def normalize_items(value, context, created_at, current_text):
         if not isinstance(amount, str) or not _AMOUNT.fullmatch(amount) or not any(c in '123456789' for c in amount):
             missing.append(f'items.{index}.gross_amount')
         else:
-            monetary_text=re.sub(r'(?<![0-9])[0-9]{4}-[0-9]{2}-[0-9]{2}(?![0-9])|(?<![0-9])[0-9]{1,2}:[0-9]{2}(?::[0-9]{2})?(?![0-9])',' ',quote)
+            monetary_text=re.sub(r'(?<![0-9])[0-9]{4}-[0-9]{2}-[0-9]{2}(?![0-9])|(?<![0-9])[0-9]{1,2}:[0-9]{2}(?::[0-9]{2})?(?![0-9])',' ',expense_fragment)
             monetary_text=re.sub(r'[0-9]+\s*(?:杯|個|个|件|次|人|张|枚|份|本|冊|辆|台|items?\b|tickets?\b)',' ',monetary_text)
             monetary_text=re.sub(r'(?:第\s*|\b(?:no\.?|number|shop|store)\s*)[0-9]+|[0-9]+\s*(?:号|號)',' ',monetary_text,flags=re.I)
             monetary_text=re.sub(r'^\s*[0-9]+[.)、]\s*',' ',monetary_text)
@@ -314,13 +318,13 @@ def normalize_items(value, context, created_at, current_text):
             money_matches=[x for x in matches if money_evidence(x)]
             if len(money_matches)!=1 or Decimal(money_matches[0].group().replace(',',''))!=Decimal(amount):
                 missing.append(f'items.{index}.gross_amount')
-            if re.search(r'\d\s*(?:或|或者|or|~|至|到)\s*\d',quote,re.I):
+            if re.search(r'\d\s*(?:或|或者|or|~|至|到)\s*\d',expense_fragment,re.I):
                 missing.append(f'items.{index}.gross_amount')
-            if len(numbers)>1 and re.search(r'单价|單價|単価|unit price|[×*]|合计|合計|total',quote,re.I):
+            if len(numbers)>1 and re.search(r'单价|單價|単価|unit price|[×*]|合计|合計|total',expense_fragment,re.I):
                 missing.append(f'items.{index}.gross_amount')
-            if re.search(r'[0-9]+\s*(?:杯|個|个|件|份|本|冊|辆|台|items?\b|tickets?\b)',quote,re.I):
+            if re.search(r'[0-9]+\s*(?:杯|個|个|件|份|本|冊|辆|台|items?\b|tickets?\b)',expense_fragment,re.I):
                 missing.append(f'items.{index}.gross_amount')
-        if not evidenced_currencies and re.search(r'[¥￥$]|(?<![日人港欧歐])元',quote):
+        if not evidenced_currencies and re.search(r'[¥￥$]|(?<![日人港欧歐])元',expense_fragment):
             missing.append(f'items.{index}.currency')
         tax = item['tax']
         if tax is not None:

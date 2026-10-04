@@ -435,6 +435,44 @@ class ShapeTests(unittest.TestCase):
             line={'source_quote':source,'title':title,'gross_amount':'1200','extra':{'dept':value}}
             self.assertIsInstance(normalize_items([line],c,int(time.time()),source),list)
 
+    def test_custom_dates_do_not_set_or_override_expense_date(self):
+        c=context();c['required_fields']=[{'key':'delivery','label':'Delivery','type':'DATE'}]
+        epoch=int(datetime(2026,10,4,3,tzinfo=timezone.utc).timestamp())
+        for prefix,expected in [('', '2026-10-04'),('2026-10-01 ', '2026-10-01')]:
+            source=prefix+'lunch 1200 JPY;Delivery=2026-09-30'
+            line={'source_quote':source,'title':'lunch','gross_amount':'1200','extra':{'delivery':'2026-09-30'}}
+            result=normalize_items([line],c,epoch,source)
+            self.assertEqual(result[0]['expense_date'],expected)
+            line['expense_date']='2026-09-30'
+            self.assertEqual(normalize_items([line],c,epoch,source)['status'],'needs_input')
+
+    def test_custom_currency_names_and_numbers_do_not_change_money(self):
+        c=context();c['required_fields']=[{'key':'project','label':'Project','type':'TEXT'},
+            {'key':'reference','label':'Reference','type':'NUMBER'}]
+        source='lunch 1200;Project=USD;Reference=460'
+        line={'source_quote':source,'title':'lunch','gross_amount':'1200','extra':{'project':'USD','reference':'460'}}
+        result=normalize_items([line],c,int(time.time()),source)
+        self.assertEqual(result[0]['currency'],'JPY');self.assertEqual(result[0]['gross_amount'],'1200')
+        for change in ({'currency':'USD'},{'gross_amount':'460'}):
+            self.assertEqual(normalize_items([line|change],c,int(time.time()),source)['status'],'needs_input')
+
+    def test_custom_date_does_not_spread_to_other_expenses(self):
+        c=context();c['required_fields']=[{'key':'delivery','label':'Delivery','type':'DATE'}]
+        epoch=int(datetime(2026,10,4,3,tzinfo=timezone.utc).timestamp())
+        source='lunch 1200 JPY;Delivery=2026-09-30,train 460 JPY'
+        lines=[{'source_quote':'lunch 1200 JPY;Delivery=2026-09-30','title':'lunch','gross_amount':'1200','extra':{'delivery':'2026-09-30'}},
+               {'source_quote':'train 460 JPY','title':'train','gross_amount':'460'}]
+        self.assertEqual([r['expense_date'] for r in normalize_items(lines,c,epoch,source)],['2026-10-04']*2)
+
+    def test_actual_expense_date_currency_and_quote_boundaries_remain_enforced(self):
+        source='2026-10-01 lunch 1200 USD;2026-10-02 train 460 JPY'
+        lines=[{'source_quote':'2026-10-01 lunch 1200 USD','title':'lunch','gross_amount':'1200'},
+               {'source_quote':'2026-10-02 train 460 JPY','title':'train','gross_amount':'460'}]
+        result=normalize_items(lines,context(),int(time.time()),source)
+        self.assertEqual([(r['expense_date'],r['currency']) for r in result],[('2026-10-01','USD'),('2026-10-02','JPY')])
+        for change in ({'source_quote':'lunch'}, {'source_quote':'not in source'}, {'gross_amount':'460'}):
+            self.assertEqual(normalize_items([lines[0]|change,lines[1]],context(),int(time.time()),source)['status'],'needs_input')
+
     def test_native_custom_types_validated_before_batch_freeze(self):
         c=context();c['required_fields']=[{'key':'check','type':'CHECKBOX','required':True,'label':'确认'}]
         self.assertIn('manual_custom_fields',normalize_items(items(),c,int(time.time()),TEXT)['fields'])

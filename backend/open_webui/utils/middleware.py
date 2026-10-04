@@ -2066,15 +2066,21 @@ async def chat_completion_files_handler(
         queries = []
         if not full_context:
             try:
-                queries_response = await generate_queries(
-                    request,
-                    {
-                        'model': body['model'],
-                        'messages': body['messages'],
-                        'type': 'retrieval',
-                        'chat_id': body.get('metadata', {}).get('chat_id'),
-                    },
-                    user,
+                # Query rewriting is optional. A slow auxiliary model must not
+                # indefinitely hold up retrieval or the user's actual answer.
+                # wait_for also cancels its HTTP request before falling back.
+                queries_response = await asyncio.wait_for(
+                    generate_queries(
+                        request,
+                        {
+                            'model': body['model'],
+                            'messages': body['messages'],
+                            'type': 'retrieval',
+                            'chat_id': body.get('metadata', {}).get('chat_id'),
+                        },
+                        user,
+                    ),
+                    timeout=8.0,
                 )
                 queries_response = queries_response['choices'][0]['message']['content']
 

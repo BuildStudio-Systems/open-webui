@@ -195,7 +195,10 @@ def direct_expense_message(text,definitions=None):
         if not segment: return None
         custom=re.fullmatch(r'([^0-9=:：]{1,60})\s*[=：:]\s*(.{1,2000})',segment)
         if custom and expenses:
-            if labels is not None and custom[1].strip() not in labels: return None
+            label,value=custom[1].strip(),custom[2].strip()
+            if labels is not None and label not in labels: return None
+            if label in expenses[-1]['custom_fields']: return None
+            expenses[-1]['custom_fields'][label]=value
             continue
         segment=re.sub(r'^(?:今天|今日|本日|today\b|[0-9]{4}-[0-9]{2}-[0-9]{2})\s*','',segment,flags=re.I)
         segment=re.sub(r'^(?:JPY|CNY|RMB|USD|EUR|HKD|TWD|KRW|SGD)\s+','',segment,flags=re.I)
@@ -213,7 +216,7 @@ def direct_expense_message(text,definitions=None):
             'lunch','dinner','breakfast','coffee','train','transport','transportation','taxi','bus','shopping','office supplies','hotel','lodging','meal','meals','parking','fuel','books'}
         if not (familiar or explicit_registration or already_paid): return None
         if Decimal(matched['amount'].replace(',',''))<=0: return None
-        expenses.append({'purpose':purpose,'amount':matched['amount'],'fragment':fragment})
+        expenses.append({'purpose':purpose,'amount':matched['amount'],'fragment':fragment,'custom_fields':{}})
     return expenses if 1<=len(expenses)<=20 else None
 
 
@@ -334,6 +337,18 @@ def normalize_items(value, context, created_at, current_text):
                     or definition.get('type') not in {'TEXT','TEXTAREA','NUMBER','DATE','SELECT','CHECKBOX'}):
                 raise IntakeError('finance_context_invalid',503)
             definitions[definition['key']]=definition
+        # Literal presence anywhere in a quote does not bind a value to a field.
+        # Keep each label/value suffix attached to its preceding expense, and
+        # reject ambiguous labels instead of letting the model choose a target.
+        source_extra={}
+        for label,source_value in parsed[index-1]['custom_fields'].items():
+            keys=[k for k,d in definitions.items() if (d.get('label') or k)==label]
+            if len(keys)!=1:
+                missing.append(f'items.{index}.custom_field_mapping')
+                continue
+            source_extra[keys[0]]=source_value
+            if extra.get(keys[0])!=source_value:
+                missing.append(f'items.{index}.extra.{keys[0]}')
         for k, v in extra.items():
             if not isinstance(k,str) or not re.fullmatch(r'[A-Za-z0-9_.:-]{1,80}',k): raise IntakeError('invalid_custom_fields',422)
             if k not in definitions: raise IntakeError('unknown_custom_field',422)
@@ -344,6 +359,8 @@ def normalize_items(value, context, created_at, current_text):
             if type(v) is bool or definitions[k]['type']=='CHECKBOX':
                 missing.append('manual_custom_fields')
             elif isinstance(v,str) and v and v not in quote:
+                missing.append(f'items.{index}.extra.{k}')
+            if v is not None and v!='' and source_extra.get(k)!=v:
                 missing.append(f'items.{index}.extra.{k}')
             kind=definitions[k]['type']
             if v is not None and kind!='CHECKBOX':

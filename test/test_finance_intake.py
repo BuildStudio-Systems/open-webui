@@ -142,6 +142,26 @@ class DatabaseTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(IntakeError): await self.app.invoke(self.nonce,{'action':'create','items':items(),key:OWNER})
         self.assertFalse(self.claims)
 
+    async def test_swapped_custom_fields_do_not_freeze_or_write_then_correct_retry(self):
+        source='午餐1200日元;部门=工程部;项目=销售部'
+        row=await self.store.reserve(OWNER,'55555555-5555-4555-8555-555555555555',source)
+        nonce=self.vault.issue(OWNER,row['id'],SESSION,int(time.time())+300,source)
+        c=context();c['required_fields']=[{'key':'dept','label':'部门','type':'TEXT','required':False},
+                                       {'key':'project','label':'项目','type':'TEXT','required':False}]
+        original=self.client.call
+        async def with_fields(session,capability,scope,suffix,body):
+            if suffix=='/context': return c
+            return await original(session,capability,scope,suffix,body)
+        self.client.call=with_fields
+        line={'source_quote':source,'title':'午餐','gross_amount':'1200',
+              'extra':{'dept':'销售部','project':'工程部'}}
+        rejected=await self.app.invoke(nonce,{'action':'create','items':[line]})
+        self.assertEqual(rejected['status'],'needs_input');self.assertFalse(self.claims)
+        self.assertFalse((await self.store.get(row['id'],OWNER))['payload_sha256'])
+        line['extra']={'dept':'工程部','project':'销售部'}
+        accepted=await self.app.invoke(nonce,{'action':'create','items':[line]})
+        self.assertEqual(accepted['status'],'completed');self.assertEqual(len(self.claims),1)
+
     async def test_legacy_session_bounds_always_require_fresh_owner_identity(self):
         for token in ('bs1_'+'a'*16,'bs1_'+'z'*196):
             self.assertEqual((await self.client.fresh_source(token,OWNER))['external_id'],OWNER)
@@ -375,6 +395,45 @@ class ShapeTests(unittest.TestCase):
         for source,title in [('今天午餐1200','午餐'),('Today lunch 1200','lunch'),('今日昼食1200','昼食'),('我午餐花了1200日元','午餐'),('I paid lunch 1200 JPY','lunch')]:
             value=[{'source_quote':source,'title':title,'gross_amount':'1200'}]
             self.assertIsInstance(normalize_items(value,context(),int(time.time()),source),list)
+
+    def test_custom_values_cannot_swap_labels_or_be_omitted(self):
+        c=context();c['required_fields']=[
+            {'key':'dept','label':'部门','type':'TEXT','required':False},
+            {'key':'project','label':'项目','type':'TEXT','required':False}]
+        source='午餐1200日元;部门=工程部;项目=销售部'
+        line={'source_quote':source,'title':'午餐','gross_amount':'1200'}
+        for extra in ({'dept':'销售部','project':'工程部'}, {'dept':'午餐','project':'销售部'},
+                      {'dept':'工程','project':'销售部'}, {'dept':'工程部'}, {}):
+            with self.subTest(extra=extra):
+                self.assertEqual(normalize_items([line|{'extra':extra}],c,int(time.time()),source)['status'],'needs_input')
+        correct={'dept':'工程部','project':'销售部'}
+        self.assertEqual(normalize_items([line|{'extra':correct}],c,int(time.time()),source)[0]['extra'],correct)
+
+    def test_custom_values_stay_with_their_expense(self):
+        c=context();c['required_fields']=[{'key':'dept','label':'部门','type':'TEXT','required':False}]
+        source='午餐1200日元;部门=工程部，电车460日元;部门=销售部'
+        lines=[{'source_quote':'午餐1200日元;部门=工程部','title':'午餐','gross_amount':'1200','extra':{'dept':'工程部'}},
+               {'source_quote':'电车460日元;部门=销售部','title':'电车','gross_amount':'460','extra':{'dept':'销售部'}}]
+        self.assertIsInstance(normalize_items(lines,c,int(time.time()),source),list)
+        lines[0]['extra']['dept']='销售部';lines[1]['extra']['dept']='工程部'
+        self.assertEqual(normalize_items(lines,c,int(time.time()),source)['status'],'needs_input')
+
+    def test_duplicate_custom_labels_require_clarification(self):
+        c=context();c['required_fields']=[{'key':'dept','label':'部门','type':'TEXT','required':False}]
+        for source in ('午餐1200日元;部门=工程部;部门=销售部','午餐1200日元;部门=工程部;部门=工程部'):
+            line={'source_quote':source,'title':'午餐','gross_amount':'1200','extra':{'dept':'工程部'}}
+            self.assertEqual(normalize_items([line],c,int(time.time()),source)['status'],'needs_input')
+        c['required_fields'].append({'key':'other','label':'部门','type':'TEXT','required':False})
+        source='午餐1200日元;部门=工程部'
+        line={'source_quote':source,'title':'午餐','gross_amount':'1200','extra':{'dept':'工程部'}}
+        self.assertIn('items.1.custom_field_mapping',normalize_items([line],c,int(time.time()),source)['fields'])
+
+    def test_custom_label_value_binding_preserves_three_languages(self):
+        for source,title,label,value in [('午餐1200日元;部门=工程部','午餐','部门','工程部'),
+                ('昼食1200円;部署=開発','昼食','部署','開発'),('lunch 1200 JPY;Department=Engineering','lunch','Department','Engineering')]:
+            c=context();c['required_fields']=[{'key':'dept','label':label,'type':'TEXT','required':False}]
+            line={'source_quote':source,'title':title,'gross_amount':'1200','extra':{'dept':value}}
+            self.assertIsInstance(normalize_items([line],c,int(time.time()),source),list)
 
     def test_native_custom_types_validated_before_batch_freeze(self):
         c=context();c['required_fields']=[{'key':'check','type':'CHECKBOX','required':True,'label':'确认'}]

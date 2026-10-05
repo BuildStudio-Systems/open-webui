@@ -3399,5 +3399,14 @@
   "Continue with GitHub": "Continue with GitHub",
   "Continue with": "Continue with",
   "Continue with Feishu": "Continue with Feishu",
-  "Continue with email": "Continue with email"
+  "Continue with email": "Continue with email",
+  "Save PDF to Share": "Save PDF to Share",
+  "This copies the current conversation, including tool results, to your own private Share space. Review sensitive content before confirming. No public link is created.": "This copies the current conversation, including tool results, to your own private Share space. Review sensitive content before confirming. No public link is created.",
+  "Retrying sends the same PDF. Closing this window keeps the pending copy until you leave this conversation or sign out.": "Retrying sends the same PDF. Closing this window keeps the pending copy until you leave this conversation or sign out.",
+  "The copy is not confirmed. Check your Systems and Share access, then retry the same PDF.": "The copy is not confirmed. Check your Systems and Share access, then retry the same PDF.",
+  "Private PDF saved.": "Private PDF saved.",
+  "Open Share": "Open Share",
+  "Preparing and saving PDF…": "Preparing and saving PDF…",
+  "Retry the same PDF": "Retry the same PDF",
+  "Confirm private copy": "Confirm private copy"
 }

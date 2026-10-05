@@ -3385,5 +3385,14 @@
   "Continue with GitHub": "GitHub で続行",
   "Continue with": "続行方法",
   "Continue with Feishu": "Feishu で続行",
-  "Continue with email": "メールアドレスで続行"
+  "Continue with email": "メールアドレスで続行",
+  "Save PDF to Share": "PDFをShareに保存",
+  "This copies the current conversation, including tool results, to your own private Share space. Review sensitive content before confirming. No public link is created.": "現在の会話（ツールの結果を含む）を自分のShare非公開領域にコピーします。確認前に機密情報を確認してください。公開リンクは作成されません。",
+  "Retrying sends the same PDF. Closing this window keeps the pending copy until you leave this conversation or sign out.": "再試行では同じPDFを送信します。このウィンドウを閉じても、会話を離れるかログアウトするまで送信待ちのコピーを保持します。",
+  "The copy is not confirmed. Check your Systems and Share access, then retry the same PDF.": "保存を確認できません。SystemsとShareのアクセス権を確認して、同じPDFを再試行してください。",
+  "Private PDF saved.": "非公開PDFを保存しました。",
+  "Open Share": "Shareを開く",
+  "Preparing and saving PDF…": "PDFを作成して保存中…",
+  "Retry the same PDF": "同じPDFを再試行",
+  "Confirm private copy": "非公開コピーを確認"
 }

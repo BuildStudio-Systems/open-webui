@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PrivateShareModal from '$lib/components/chat/PrivateShareModal.svelte';
 	import { toast } from 'svelte-sonner';
 	import { getContext, tick } from 'svelte';
 
@@ -56,6 +57,10 @@
 	export let scrollToTop: (() => void) | null = null;
 
 	let showFullMessages = false;
+	let showPrivateShare = false;
+	let privateShareEnabled = false;
+	let handoffToken = '';
+	$: handoffToken = $user?.id && typeof window !== 'undefined' ? localStorage.token ?? '' : '';
 
 	const getChatAsText = async () => {
 		const history = chat.chat.history;
@@ -78,24 +83,25 @@
 		saveAs(blob, `chat-${chat.chat.title}.txt`);
 	};
 
-	const downloadPdf = async () => {
+	const downloadPdf = async (privateCopy = false) => {
 		const [{ default: jsPDF }, { default: html2canvas }] = await Promise.all([
 			import('jspdf'),
 			import('html2canvas-pro')
 		]);
 
-		if ($settings?.stylizedPdfExport ?? true) {
+		if (privateCopy || ($settings?.stylizedPdfExport ?? true)) {
 			showFullMessages = true;
 			await tick();
 
 			const containerElement = document.getElementById('full-messages-container');
 			if (containerElement) {
+				let clonedElement: HTMLElement | null = null;
 				try {
 					const isDarkMode = document.documentElement.classList.contains('dark');
 					const virtualWidth = 800; // px, fixed width for cloned element
 
 					// Clone and style
-					const clonedElement = containerElement.cloneNode(true);
+					clonedElement = containerElement.cloneNode(true) as HTMLElement;
 					clonedElement.classList.add('text-black');
 					clonedElement.classList.add('dark:text-white');
 					clonedElement.style.width = `${virtualWidth}px`;
@@ -183,12 +189,14 @@
 						page++;
 					}
 
-					pdf.save(`chat-${chat.chat.title}.pdf`);
+					if (!privateCopy) pdf.save(`chat-${chat.chat.title}.pdf`);
+					else return pdf.output('blob');
 
 					showFullMessages = false;
 				} catch (error) {
 					console.error('Error generating PDF', error);
-				}
+					if (privateCopy) throw new Error('pdf_export_failed');
+				} finally { clonedElement?.remove(); showFullMessages = false; }
 			}
 		} else {
 			console.log('Downloading PDF');
@@ -276,6 +284,14 @@
 			/>
 		</div>
 	</div>
+{/if}
+
+{#if !readOnly && !$temporaryChatEnabled && chat?.id && ($user?.role === 'admin' || ($user?.permissions?.chat?.export ?? true))}
+  {#key `${chat.id}:${$user?.id}:${handoffToken}`}
+    <PrivateShareModal bind:show={showPrivateShare} bind:enabled={privateShareEnabled}
+      token={handoffToken}
+      createPdf={() => downloadPdf(true)} />
+  {/key}
 {/if}
 
 <Dropdown
@@ -421,6 +437,11 @@
 					>
 						<div class="flex items-center line-clamp-1">{$i18n.t('PDF document (.pdf)')}</div>
 					</button>
+                    {#if privateShareEnabled && !readOnly && !$temporaryChatEnabled}
+                      <button class="flex w-full items-center px-2 py-1 text-sm rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800" on:click={() => showPrivateShare = true}>
+                        {$i18n.t('Save PDF to Share')}
+                      </button>
+                    {/if}
 				</DropdownSub>
 			{/if}
 

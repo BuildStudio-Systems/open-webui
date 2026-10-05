@@ -855,6 +855,8 @@ app.include_router(knowledge.router, prefix='/api/v1/knowledge', tags=['knowledg
 app.include_router(there.router, prefix='/api/v1/there', tags=['there'])
 app.include_router(device_control.router, prefix='/api/v1/device-control', tags=['device-control'])
 app.include_router(finance_intake.router, prefix='/api/v1/finance-intake', tags=['finance-intake'])
+from open_webui.routers.share_handoff import router as private_share_handoff_router
+app.include_router(private_share_handoff_router)
 app.include_router(there_knowledge.router, prefix='/api/v1/there', tags=['there'])
 app.include_router(there_personal.router, prefix='/api/v1/there', tags=['there'])
 app.include_router(prompts.router, prefix='/api/v1/prompts', tags=['prompts'])

@@ -12,3 +12,9 @@ export function sharedSignInCopy(language: string) {
 	if (language?.startsWith('zh')) return { button: '使用 Systems 登录状态', failed: '共享登录未完成，可以使用当前登录表单或重试。' };
 	return { button: 'Use Systems sign-in', failed: 'Shared sign-in could not finish. Use the login form or try again.' };
 }
+
+// A first visit without a Systems session is an ordinary sign-in, not a failure.
+export function sharedSignInFailed(url: URL) {
+	const result = url.searchParams.get('sso');
+	return !!result && !['login_required', 'complete'].includes(result);
+}

@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { sharedSignInAction, sharedSignInCopy } from './studio-sso';
+import { sharedSignInAction, sharedSignInCopy, sharedSignInFailed } from './studio-sso';
 
 describe('shared sign-in navigation', () => {
+	it.each([
+		['', false], ['?sso=login_required', false], ['?sso=complete', false],
+		['?sso=expired', true], ['?sso=unavailable', true], ['?sso=access_denied', true]
+	])('reports actual shared sign-in failures %s', (query, failed) => {
+		expect(sharedSignInFailed(new URL('https://buildstudio-there.com/auth' + query))).toBe(failed);
+	});
 	it.each([
 		['', true, false, 'start'],
 		['', false, false, 'none'],

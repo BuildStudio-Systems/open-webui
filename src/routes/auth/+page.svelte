@@ -27,7 +27,7 @@
 	import OnBoarding from '$lib/components/OnBoarding.svelte';
 	import SensitiveInput from '$lib/components/common/SensitiveInput.svelte';
 	import { redirect } from '@sveltejs/kit';
-	import { sharedSignInAction, sharedSignInCopy } from '$lib/utils/studio-sso';
+	import { sharedSignInAction, sharedSignInCopy, sharedSignInFailed } from '$lib/utils/studio-sso';
 
 	const i18n = getContext('i18n');
 
@@ -197,7 +197,7 @@
 				window.location.replace('/api/auth/sso/start');
 				return;
 			}
-			studioSsoFailed = $page.url.searchParams.has('sso') && !$user;
+			studioSsoFailed = sharedSignInFailed($page.url) && !$user;
 		} catch {
 			studioSsoFailed = $page.url.searchParams.has('sso');
 		}

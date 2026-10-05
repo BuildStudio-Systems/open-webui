@@ -17,11 +17,13 @@ export class PrivateShareTransfer {
     try {
       if (!this.pending) {
         const pdf = await createPdf();
-        if (this.disposed || controller.signal.aborted) return;
+        if (this.disposed) return;
+        if (controller.signal.aborted) throw new Error('copy_timeout');
         if (!pdf || !pdf.size || pdf.size > 32 * 1024 * 1024 || await pdf.slice(0,5).text() !== '%PDF-') throw new Error('invalid_pdf');
         this.pending = {pdf, key: crypto.randomUUID(), name: `there-chat-${new Date().toISOString().replace(/[:.]/g, '-')}.pdf`};
       }
-      if (this.disposed || controller.signal.aborted) return;
+      if (this.disposed) return;
+        if (controller.signal.aborted) throw new Error('copy_timeout');
       const p = this.pending;
       const response = await request('/api/v1/integrations/share/files', {
         method: 'POST', cache: 'no-store', credentials: 'same-origin', redirect: 'error', signal: controller.signal,

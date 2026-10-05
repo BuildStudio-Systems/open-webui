@@ -43,7 +43,7 @@
     <div class="flex gap-3 justify-end">
       <button class="rounded-xl px-4 py-2 text-sm bg-gray-100 dark:bg-gray-800" on:click={() => show = false}>{$i18n.t('Close')}</button>
       <button class="rounded-xl px-4 py-2 text-sm bg-black text-white dark:bg-white dark:text-black disabled:opacity-50" disabled={!enabled || busy || transfer.saved} on:click={send}>
-        {$i18n.t(busy ? 'Preparing and saving PDF…' : transfer.prepared ? 'Retry the same PDF' : 'Confirm private copy')}
+        {$i18n.t(busy ? 'Preparing and saving PDF…' : transfer.saved ? 'Private PDF saved.' : transfer.prepared ? 'Retry the same PDF' : 'Confirm private copy')}
       </button>
     </div>
   </div>

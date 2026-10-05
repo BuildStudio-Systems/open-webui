@@ -144,12 +144,11 @@ async def personal_sources(user, chat_id, query, *, db=None):
         # transcript. Do not transfer/decode that transcript before retrieval.
         chat = await session.scalar(select(Chat).options(load_only(
             Chat.id, Chat.share_id, Chat.meta, Chat.timer_at, raiseload=True,
-        )).where(Chat.id == chat_id, Chat.user_id == user.id))
+        )).where(Chat.id == chat_id, Chat.user_id == user.id,
+            ~select(AccessGrant.id).where(
+                AccessGrant.resource_type == 'chat', AccessGrant.resource_id == chat_id,
+            ).exists()))
         if not chat or chat.share_id or (chat.meta or {}).get('internal') or chat.timer_at:
-            return []
-        shared = await session.scalar(select(AccessGrant.id).where(
-            AccessGrant.resource_type == 'chat', AccessGrant.resource_id == chat_id).limit(1))
-        if shared:
             return []
         page = await search_history(session, user.id, terms=terms, exclude_id=chat_id, limit=3,
                                     exclude_device_receipts=True)

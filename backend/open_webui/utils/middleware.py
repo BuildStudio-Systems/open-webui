@@ -2170,6 +2170,41 @@ async def chat_completion_files_handler(
     return body, {'sources': sources}
 
 
+async def chat_completion_context_handler(request, form_data, extra_params, user, metadata, prompt,
+                                          file_context_enabled):
+    """Prepare independent sources together; preserve file/history citation order."""
+    async def files():
+        if file_context_enabled:
+            try:
+                body, flags = await chat_completion_files_handler(request, form_data, extra_params, user)
+                return body, flags.get('sources', [])
+            except Exception:
+                log.warning('File-context preparation failed')
+        return form_data, []
+
+    async def history():
+        # The service uses its own DB session and checks both source/destination
+        # ownership. Never inherit an administrator-selected owner or cache ACLs.
+        if metadata.get('session_id') and prompt and is_saved_chat_id(metadata.get('chat_id')):
+            try:
+                from open_webui.there_integration.personal import personal_sources
+                return await personal_sources(user, metadata['chat_id'], prompt)
+            except Exception:
+                log.warning('Personal-history context unavailable')
+        return []
+
+    tasks = [asyncio.create_task(files()), asyncio.create_task(history())]
+    try:
+        (body, file_sources), history_sources = await asyncio.gather(*tasks)
+        return body, [*file_sources, *history_sources]
+    finally:
+        # Cancellation must close DB/HTTP work before this request is released.
+        for task in tasks:
+            if not task.done() and not task.cancelling():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+
 async def convert_url_images_to_base64(form_data, user=None):
     messages = form_data.get('messages', [])
 
@@ -3115,22 +3150,10 @@ async def process_chat_payload(request, form_data, user, metadata, model):
     # Check if file context extraction is enabled for this model (default True)
     file_context_enabled = (model.get('info', {}).get('meta', {}).get('capabilities') or {}).get('file_context', True)
 
-    if file_context_enabled:
-        try:
-            form_data, flags = await chat_completion_files_handler(request, form_data, extra_params, user)
-            sources.extend(flags.get('sources', []))
-        except Exception:
-            log.warning('File-context preparation failed')
-
-    # Private history is never retrieved using an administrator-selected owner.
-    # Interactive saved chats only; the service also rejects shared destinations.
-    if metadata.get('session_id') and prompt and is_saved_chat_id(metadata.get('chat_id')):
-        try:
-            from open_webui.there_integration.personal import personal_sources
-            sources.extend(await personal_sources(user, metadata['chat_id'], prompt))
-        except Exception:
-            # History is optional context: no prompt text or user data in logs.
-            log.warning('Personal-history context unavailable')
+    form_data, context_sources = await chat_completion_context_handler(
+        request, form_data, extra_params, user, metadata, prompt, file_context_enabled,
+    )
+    sources.extend(context_sources)
 
     # Save the pre-RAG message state so the native tool call loop can
     # restore to the true original (before file-source injection) rather

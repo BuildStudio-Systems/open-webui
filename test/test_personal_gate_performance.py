@@ -7,7 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 import unittest
 
-from sqlalchemy import JSON, Column, Integer, String, select
+from sqlalchemy import JSON, Column, Integer, String, select, event
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import declarative_base, load_only
 from sqlalchemy.types import TypeDecorator
@@ -110,6 +110,20 @@ class PersonalGateTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(result, [])
                 self.assertEqual(TranscriptJSON.reads, 0)
                 self.assertEqual(self.searches, [])
+
+    async def test_destination_and_grant_gate_use_one_database_roundtrip(self):
+        statements = []
+        def capture(connection, cursor, statement, parameters, context, executemany):
+            statements.append(statement)
+        event.listen(self.engine.sync_engine, 'before_cursor_execute', capture)
+        try:
+            async with self.sessions() as session:
+                result = await self.sources(SimpleNamespace(id='alice'), 'owned', 'test', db=session)
+            self.assertTrue(result)
+            self.assertEqual(len(statements), 1)
+            self.assertEqual(TranscriptJSON.reads, 0)
+        finally:
+            event.remove(self.engine.sync_engine, 'before_cursor_execute', capture)
 
 
 if __name__ == '__main__':

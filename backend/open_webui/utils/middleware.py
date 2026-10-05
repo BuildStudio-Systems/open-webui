@@ -205,6 +205,16 @@ def _safe_streaming_provider_error(error: Any) -> str:
     return ERROR_MESSAGES.SERVER_CONNECTION_ERROR
 
 
+def _chat_completion_stream_error(data: dict) -> Any:
+    """Terminal errors may accompany choices; never mistake them for success."""
+    if data.get('error'):
+        return data['error']
+    for choice in data.get('choices') or []:
+        if isinstance(choice, dict) and choice.get('finish_reason') in {'error', 'length', 'content_filter'}:
+            return {'code': choice['finish_reason']}
+    return None
+
+
 def _is_tool_result_error(value: Any) -> bool:
     if isinstance(value, str):
         text = value.strip().lower()
@@ -5055,29 +5065,29 @@ async def streaming_chat_response_handler(response, ctx):
                                             }
                                         )
 
-                                    if not choices:
-                                        error = data.get('error', {})
-                                        if error:
-                                            safe_error = _safe_streaming_provider_error(error)
-                                            if save_to_chat:
-                                                try:
-                                                    await Chats.upsert_message_to_chat_by_id_and_message_id(
-                                                        metadata['chat_id'],
-                                                        metadata['message_id'],
-                                                        {
-                                                            'error': {'content': safe_error},
-                                                        },
-                                                    )
-                                                except Exception:
-                                                    pass
-                                            await event_emitter(
-                                                {
-                                                    'type': 'chat:completion',
-                                                    'data': {
-                                                        'error': safe_error,
+                                    error = _chat_completion_stream_error(data)
+                                    if error:
+                                        safe_error = _safe_streaming_provider_error(error)
+                                        if save_to_chat:
+                                            try:
+                                                await Chats.upsert_message_to_chat_by_id_and_message_id(
+                                                    metadata['chat_id'],
+                                                    metadata['message_id'],
+                                                    {
+                                                        'error': {'content': safe_error},
                                                     },
-                                                }
-                                            )
+                                                )
+                                            except Exception:
+                                                pass
+                                        await event_emitter(
+                                            {
+                                                'type': 'chat:completion',
+                                                'data': {
+                                                    'error': safe_error,
+                                                },
+                                            }
+                                        )
+                                    if not choices:
                                         continue
 
                                     delta = choices[0].get('delta', {})

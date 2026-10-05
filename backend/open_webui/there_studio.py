@@ -133,9 +133,24 @@ class StudioMiddleware:
             if path in ('/api/v1/auths/signin','/api/v1/auths/signout','/api/v1/auths/update/password') and method=='POST':
                 if request.headers.get('origin')!=ORIGIN: raise HTTPException(403,'Sign in from the There website.')
                 if path.endswith('/signout'):
+                    from open_webui import there_sso
+                    pending=request.cookies.get(there_sso.COOKIE,'')
+                    cancelled=True
+                    try:
+                        if there_sso.OPAQUE.fullmatch(pending):
+                            await asyncio.to_thread(there_sso.store().cancel,pending)
+                    except Exception:
+                        cancelled=False
                     token=token_from(request)
-                    if token.startswith('bs1_'): await studio.logout(token)
-                    response=JSONResponse({'status':True});response.delete_cookie('token',path='/',secure=True,httponly=True,samesite='strict')
+                    revoked=True
+                    try:
+                        if token.startswith('bs1_'): await studio.logout(token)
+                    except Exception:
+                        revoked=False
+                    response=JSONResponse({'status':cancelled and revoked, 'shared_login_cancelled':cancelled,
+                                           'session_revoked':revoked}, status_code=200 if cancelled and revoked else 503)
+                    response.delete_cookie('token',path='/',secure=True,httponly=True,samesite='strict')
+                    response.delete_cookie(there_sso.COOKIE,path='/',secure=True,httponly=True,samesite='lax')
                     return await response(scope,receive,send)
                 body=b''
                 async for chunk in request.stream():

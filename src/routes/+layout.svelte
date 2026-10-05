@@ -1253,7 +1253,12 @@
 			if ($config) {
 				await setupSocket($config.features?.enable_websocket ?? true);
 
-				if (localStorage.token) {
+				// The SSO callback has just installed a fresh HttpOnly cookie. A stale
+				// local bearer must not overwrite it before /auth completes the handoff.
+				const completingSharedLogin = $page.url.pathname === '/auth' &&
+					$page.url.searchParams.get('sso') === 'complete' &&
+					$page.url.searchParams.get('state') !== 'logout';
+				if (localStorage.token && !completingSharedLogin) {
 					// Get Session User Info
 					const sessionUser = await getSessionUser(localStorage.token).catch((error) => {
 						toast.error(`${error}`);

@@ -26,7 +26,7 @@ class _RejectRedirects(urllib.request.HTTPRedirectHandler):
         return None
 
 
-_opener = urllib.request.build_opener(_RejectRedirects())
+_opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _RejectRedirects())
 
 
 def _failure_kind(error):
@@ -77,13 +77,13 @@ def _request(action, body, source='unknown'):
 async def call(action, body, source='unknown'):
     return await asyncio.to_thread(_request, action, body, source)
 
-async def check(token):
+async def check(token, *, fresh=False):
     if not token or not token.startswith('bs1_') or len(token)>200:
         raise HTTPException(401,'Please sign in again.')
     key=hashlib.sha256(token.encode()).hexdigest()
     now=time.monotonic()
     cached=_cache.get(key)
-    if cached and cached[0]>now: return cached[1]
+    if not fresh and cached and cached[0]>now: return cached[1]
     try: result=await call('check',{'token':token})
     except Exception:
         _cache.pop(key,None)

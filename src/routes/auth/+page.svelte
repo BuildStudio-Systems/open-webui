@@ -27,6 +27,7 @@
 	import OnBoarding from '$lib/components/OnBoarding.svelte';
 	import SensitiveInput from '$lib/components/common/SensitiveInput.svelte';
 	import { redirect } from '@sveltejs/kit';
+	import { sharedSignInAction, sharedSignInCopy } from '$lib/utils/studio-sso';
 
 	const i18n = getContext('i18n');
 
@@ -44,6 +45,9 @@
 	let ldapUsername = '';
 
 	let submitting = false;
+	let studioSsoEnabled = false;
+	let studioSsoFailed = false;
+	$: studioSsoCopy = sharedSignInCopy($i18n.language);
 
 	const setSessionUser = async (sessionUser, redirectPath: string | null = null) => {
 		if (sessionUser) {
@@ -168,6 +172,35 @@
 	onMount(async () => {
 		const redirectPath = $page.url.searchParams.get('redirect');
 		const logout = $page.url.searchParams.get('state') === 'logout';
+		try {
+			const configuration = await fetch('/api/auth/sso/config', {
+				credentials: 'same-origin', cache: 'no-store', redirect: 'error',
+				signal: AbortSignal.timeout(5000)
+			});
+			studioSsoEnabled = configuration.ok && (await configuration.json()).enabled === true;
+			const action = sharedSignInAction($page.url, studioSsoEnabled, !!$user);
+			if (action === 'complete') {
+				// The callback installed an HttpOnly cookie. Do not use an old local token.
+				const response = await fetch(`${WEBUI_API_BASE_URL}/auths/`, {
+					credentials: 'same-origin', cache: 'no-store', redirect: 'error',
+					signal: AbortSignal.timeout(5000)
+				});
+				if (!response.ok) throw new Error('shared_sign_in_failed');
+				const sessionUser = await response.json();
+				if (!sessionUser?.token?.startsWith('bs1_')) throw new Error('shared_sign_in_failed');
+				history.replaceState(null, '', '/auth');
+				await setSessionUser(sessionUser, '/');
+				loaded = true;
+				return;
+			}
+			if (action === 'start') {
+				window.location.replace('/api/auth/sso/start');
+				return;
+			}
+			studioSsoFailed = $page.url.searchParams.has('sso') && !$user;
+		} catch {
+			studioSsoFailed = $page.url.searchParams.has('sso');
+		}
 
 		if ($user && !logout) {
 			goto(redirectPath || '/');
@@ -324,6 +357,10 @@
 										{/if}
 									</div>
 
+									{#if studioSsoEnabled}
+										<a class="mt-3 mb-2 rounded-xl border border-gray-300 p-3 text-sm dark:border-gray-600" href="/api/auth/sso/start">{studioSsoCopy.button}</a>
+										{#if studioSsoFailed}<p class="text-sm text-gray-500" role="status">{studioSsoCopy.failed}</p>{/if}
+									{/if}
 									{#if $config?.features.enable_login_form || $config?.features.enable_ldap || form}
 										<div class="flex flex-col mt-4">
 											{#if mode === 'signup'}

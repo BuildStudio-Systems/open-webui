@@ -3015,6 +3015,9 @@ async def check_db_health():
     return {'status': True}
 
 
+from open_webui import there_sso
+app.include_router(there_sso.router)
+
 # --- static assets & files ---
 # Windows registry entries can override these with text/plain, which breaks module and wasm loading
 mimetypes.add_type('text/javascript', '.js')

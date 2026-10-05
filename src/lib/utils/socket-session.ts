@@ -1,5 +1,12 @@
 import type { Socket } from 'socket.io-client';
 
+/** Only a verified session starts realtime traffic; logout also cancels retries. */
+export function syncSessionSocket(socket: Socket | null, authenticated: boolean) {
+	if (!socket) return;
+	if (!authenticated) socket.disconnect();
+	else if (!socket.connected) socket.connect();
+}
+
 /** Socket.IO invokes this on every handshake, including automatic reconnects. */
 export const socketSessionAuth = (readToken: () => string | null) =>
 	(callback: (auth: { token?: string }) => void) => {

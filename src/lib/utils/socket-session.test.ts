@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Socket } from 'socket.io-client';
-import { reconnectSessionSocket, socketSessionAuth } from './socket-session';
+import { reconnectSessionSocket, socketSessionAuth, syncSessionSocket } from './socket-session';
 
 function fixture() {
 	const handlers = new Map<string, () => void>();
@@ -14,6 +14,19 @@ function fixture() {
 
 afterEach(() => { vi.useRealTimers(); });
 describe('session socket authentication', () => {
+	it('keeps anonymous traffic stopped, connects a verified session and cancels logout retries', () => {
+		const { socket, client } = fixture();
+		syncSessionSocket(null, false);
+		syncSessionSocket(client, false);
+		expect(socket.connect).not.toHaveBeenCalled();
+		syncSessionSocket(client, true);
+		expect(socket.connect).toHaveBeenCalledOnce();
+		client.connected = true;
+		syncSessionSocket(client, true);
+		expect(socket.connect).toHaveBeenCalledOnce();
+		syncSessionSocket(client, false);
+		expect(socket.disconnect).toHaveBeenCalledTimes(2);
+	});
 	it('reads the current token on every handshake, including logout', () => {
 		let token: string | null = null;
 		const auth = socketSessionAuth(() => token);

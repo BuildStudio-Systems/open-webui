@@ -1,6 +1,6 @@
 <script>
 	import { io } from 'socket.io-client';
-	import { socketSessionAuth } from '$lib/utils/socket-session';
+	import { socketSessionAuth, syncSessionSocket } from '$lib/utils/socket-session';
 	import { spring } from 'svelte/motion';
 	import { createPyodideWorker } from '$lib/pyodide/createPyodideWorker';
 	import { Toaster, toast } from 'svelte-sonner';
@@ -154,7 +154,7 @@
 		disconnectToastTimer = setTimeout(() => {
 			disconnectToastTimer = null;
 
-			if ($socket?.connected || !pageIsVisible || isLikelyResumeDisconnect(disconnectReason)) {
+			if (!$user || $socket?.connected || !pageIsVisible || isLikelyResumeDisconnect(disconnectReason)) {
 				return;
 			}
 
@@ -165,6 +165,7 @@
 
 	const setupSocket = async (enableWebsocket) => {
 		const _socket = io(`${WEBUI_BASE_URL}` || undefined, {
+			autoConnect: false,
 			reconnection: true,
 			reconnectionDelay: 1000,
 			reconnectionDelayMax: 5000,
@@ -269,7 +270,7 @@
 				heartbeatInterval = null;
 			}
 
-			if (reason === 'io server disconnect') {
+			if (reason === 'io server disconnect' && $user) {
 				_socket.connect();
 			}
 
@@ -1204,6 +1205,7 @@
 		window.addEventListener('resize', onResize);
 
 		user.subscribe(async (value) => {
+			syncSessionSocket($socket, !!value);
 			if (value) {
 				$socket?.off('events', chatEventHandler);
 				$socket?.off('events:channel', channelEventHandler);
@@ -1217,6 +1219,9 @@
 				}
 				tokenTimer = setInterval(checkTokenExpiry, 15000);
 			} else {
+				clearDisconnectToastTimer();
+				disconnectWarningShown = false;
+				if (tokenTimer) { clearInterval(tokenTimer); tokenTimer = null; }
 				$socket?.off('events', chatEventHandler);
 				$socket?.off('events:channel', channelEventHandler);
 			}

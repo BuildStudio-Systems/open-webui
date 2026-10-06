@@ -79,6 +79,10 @@ from open_webui.socket.main import (
     get_event_emitter,
 )
 from open_webui.tasks import clear_response_stream, save_response_stream
+from open_webui.there_integration.knowledge_citations import (
+    citation_sources_from_weknora_mcp_result,
+    serialize_rag_source_opening_tag,
+)
 from open_webui.utils.access_control import has_connection_access, has_permission
 from open_webui.utils.access_control.files import get_owner_accessible_folder_files
 from open_webui.utils.access_control.folders import has_folder_access
@@ -1012,6 +1016,11 @@ def handle_responses_streaming_event(
 def get_source_context(sources: list, source_ids: dict = None, include_content: bool = True) -> str:
     """
     Build <source> tag context string from citation sources.
+
+    Source titles and resource identifiers remain available to the UI citation
+    payload, but are intentionally excluded here because they are untrusted
+    model-context attributes. Only the server-generated numeric source index
+    and a narrowly derived constant for WeKnora knowledge are serialized.
     """
     context_string = ''
     if source_ids is None:
@@ -1021,16 +1030,26 @@ def get_source_context(sources: list, source_ids: dict = None, include_content: 
             source_id = meta.get('source') or source.get('source', {}).get('id') or 'N/A'
             if source_id not in source_ids:
                 source_ids[source_id] = len(source_ids) + 1
-            src_name = source.get('source', {}).get('name')
-            src_type = source.get('source', {}).get('type')
-            src_rid = source.get('source', {}).get('id')
+            context_source_id = source_ids[source_id]
+            if type(context_source_id) is not int or context_source_id < 1:
+                context_source_id = max(
+                    (value for value in source_ids.values() if type(value) is int and value > 0),
+                    default=0,
+                ) + 1
+                source_ids[source_id] = context_source_id
+            source_info = source.get('source', {})
+            trusted_resource_type = (
+                'knowledge'
+                if source_info.get('engine') == 'weknora' and source_info.get('type') == 'knowledge'
+                else None
+            )
             body = doc if include_content else ''
             context_string += (
-                f'<source id="{source_ids[source_id]}"'
-                + (f' name="{src_name}"' if src_name else '')
-                + (f' resource-type="{src_type}"' if src_type else '')
-                + (f' resource-id="{src_rid}"' if src_rid else '')
-                + f'>{body}</source>\n'
+                serialize_rag_source_opening_tag(
+                    context_source_id,
+                    resource_type=trusted_resource_type,
+                )
+                + f'{body}</source>\n'
             )
     return context_string
 
@@ -3009,6 +3028,8 @@ async def process_chat_payload(request, form_data, user, metadata, model):
                                 },
                                 'callable': tool_function,
                                 'type': 'mcp',
+                                'server_id': server_id,
+                                'source_tool_name': tool_spec['name'],
                                 'client': client,
                                 'direct': False,
                             }
@@ -5870,26 +5891,30 @@ async def streaming_chat_response_handler(response, ctx):
                         )
 
                         # Extract citation sources from tool results
-                        if (
-                            citations_enabled
-                            and tool_function_name
-                            in [
-                                'search_web',
-                                'fetch_url',
-                                'view_file',
-                                'view_knowledge_file',
-                                'query_knowledge_files',
-                                'query_chat_files',
-                            ]
-                            and tool_result
-                        ):
+                        if citations_enabled and tool_result:
                             try:
-                                citation_sources = get_citation_source_from_tool_result(
-                                    tool_name=tool_function_name,
-                                    tool_params=tool_function_params,
-                                    tool_result=tool_result,
-                                    tool_id=tool.get('tool_id', '') if tool else '',
-                                )
+                                citation_sources = []
+                                if tool_function_name in [
+                                    'search_web',
+                                    'fetch_url',
+                                    'view_file',
+                                    'view_knowledge_file',
+                                    'query_knowledge_files',
+                                    'query_chat_files',
+                                ]:
+                                    citation_sources = get_citation_source_from_tool_result(
+                                        tool_name=tool_function_name,
+                                        tool_params=tool_function_params,
+                                        tool_result=tool_result,
+                                        tool_id=tool.get('tool_id', '') if tool else '',
+                                    )
+                                elif tool_type == 'mcp' and tool:
+                                    citation_sources = citation_sources_from_weknora_mcp_result(
+                                        server_id=tool.get('server_id', ''),
+                                        tool_name=tool.get('source_tool_name', ''),
+                                        tool_params=tool_function_params,
+                                        tool_result=tool_result,
+                                    )
                                 tool_call_sources.extend(citation_sources)
                             except Exception:
                                 log.warning('Citation source extraction failed')

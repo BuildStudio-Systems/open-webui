@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {PrivateShareTransfer} from '../src/lib/utils/private-share-transfer.ts';
 const pdf=()=>new Blob(['%PDF-synthetic'],{type:'application/pdf'});
-function ok(init){return Response.json({file_id:'fixture',name:decodeURIComponent(init.headers['X-File-Name']),url:'https://buildstudio-share.com'});}
+const fileId='123e4567-e89b-42d3-a456-426614174000';
+function ok(init){return Response.json({file_id:fileId,name:decodeURIComponent(init.headers['X-File-Name']),url:'https://buildstudio-share.com'});}
 test('lost response retries identical bytes and key without regenerating; success blocks extra sends',async()=>{
  let exports=0;const posts=[];const state=new PrivateShareTransfer();
  const generate=async()=>{exports++;return pdf();};
@@ -10,6 +11,7 @@ test('lost response retries identical bytes and key without regenerating; succes
  await assert.rejects(state.send('bs1_fixture',generate,request));
  await state.send('bs1_fixture',generate,request);await state.send('bs1_fixture',generate,request);
  assert.equal(exports,1);assert.equal(posts.length,2);assert.equal(posts[0].body,posts[1].body);assert.equal(posts[0].headers['Idempotency-Key'],posts[1].headers['Idempotency-Key']);assert(state.saved);
+ assert.equal(state.fileId,fileId);assert.equal(state.shareHref,`https://buildstudio-share.com/#file=${fileId}`);
  assert.equal(posts[0].redirect,'error');assert.equal(posts[0].cache,'no-store');
 });
 test('navigation during PDF generation prevents transmission',async()=>{
@@ -29,6 +31,9 @@ test('malformed and oversized exports never send',async()=>{
 });
 test('untrusted receipt cannot mark saved or replace pending file',async()=>{
  const state=new PrivateShareTransfer();await assert.rejects(state.send('bs1_fixture',async()=>pdf(),async(_,i)=>Response.json({...JSON.parse(await ok(i).text()),url:'https://evil.example'})));assert.equal(state.saved,false);assert.equal(state.prepared,true);
+});
+test('noncanonical file receipt cannot create a private-file continuation',async()=>{
+ const state=new PrivateShareTransfer();await assert.rejects(state.send('bs1_fixture',async()=>pdf(),async(_,i)=>Response.json({...JSON.parse(await ok(i).text()),file_id:'123E4567-E89B-42D3-A456-426614174000'})));assert.equal(state.saved,false);assert.equal(state.fileId,null);assert.equal(state.shareHref,'');
 });
 test('native token rejected before exporting',async()=>{
  const state=new PrivateShareTransfer();let count=0;await assert.rejects(state.send('local',async()=>{count++;return pdf();}));assert.equal(count,0);

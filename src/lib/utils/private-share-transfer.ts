@@ -5,9 +5,11 @@ export class PrivateShareTransfer {
   private disposed = false;
   busy = false;
   saved = false;
+  fileId: string | null = null;
   get name() { return this.pending?.name ?? ''; }
   get prepared() { return this.pending !== null; }
-  dispose() { this.disposed = true; this.controller?.abort(); this.pending = null; }
+  get shareHref() { return this.fileId ? `https://buildstudio-share.com/#file=${this.fileId}` : ''; }
+  dispose() { this.disposed = true; this.controller?.abort(); this.pending = null; this.fileId = null; }
   async send(token: string, createPdf: () => Promise<Blob | undefined>, request: typeof fetch = fetch) {
     if (this.busy || this.saved || this.disposed) return;
     if (!token.startsWith('bs1_')) throw new Error('central_session_required');
@@ -32,8 +34,9 @@ export class PrivateShareTransfer {
       });
       if (!response.ok) throw new Error('copy_unconfirmed');
       const receipt = await response.json();
-      if (receipt.name !== p.name || typeof receipt.file_id !== 'string' || receipt.url !== 'https://buildstudio-share.com') throw new Error('invalid_receipt');
-      if (!this.disposed) this.saved = true;
+      const fileId = typeof receipt.file_id === 'string' ? receipt.file_id : '';
+      if (receipt.name !== p.name || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(fileId) || receipt.url !== 'https://buildstudio-share.com') throw new Error('invalid_receipt');
+      if (!this.disposed) { this.fileId = fileId; this.saved = true; }
     } finally { clearTimeout(deadline); this.busy = false; }
   }
 }

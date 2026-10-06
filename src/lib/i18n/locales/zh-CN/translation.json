@@ -3429,6 +3429,7 @@
   "The copy is not confirmed. Check your Systems and Share access, then retry the same PDF.": "副本保存尚未确认。请检查 Systems 和 Share 访问权限，然后重试同一份 PDF。",
   "Private PDF saved.": "私有 PDF 已保存。",
   "Open Share": "打开 Share",
+  "Open saved file": "打开已保存文件",
   "Preparing and saving PDF…": "正在生成并保存 PDF…",
   "Retry the same PDF": "重试同一份 PDF",
   "Confirm private copy": "确认保存私有副本"

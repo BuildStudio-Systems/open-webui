@@ -347,6 +347,24 @@ class AutomationRunTable:
         db: Optional[AsyncSession] = None,
     ) -> AutomationRunModel:
         async with get_async_db_context(db) as db:
+            if chat_id and not chat_id.startswith('channel:'):
+                # Coordinate with chat deletion without imposing a foreign key on
+                # this polymorphic column.  PostgreSQL's shared row lock lets an
+                # in-flight run finish before deletion, while a deletion that won
+                # the race makes the later lookup return no row.  SQLite ignores
+                # FOR SHARE but serializes its write transactions.
+                from open_webui.models.chats import Chat
+
+                # AsyncSessionLocal disables autoflush.  Flush first so a Chat
+                # added earlier in the same shared transaction is visible to
+                # the existence/lock query instead of losing a valid link.
+                await db.flush()
+                locked_chat_id = await db.scalar(
+                    select(Chat.id).where(Chat.id == chat_id).with_for_update(read=True)
+                )
+                if locked_chat_id is None:
+                    chat_id = None
+
             row = AutomationRun(
                 id=str(uuid4()),
                 automation_id=automation_id,

@@ -2485,66 +2485,167 @@ class ChatTable:
             return False
 
     async def delete_chat_by_id(self, id: str, db: AsyncSession | None = None) -> bool:
-        try:
-            async with get_async_db_context(db) as session:
-                await session.execute(update(AutomationRun).filter_by(chat_id=id).values(chat_id=None))
-                await session.execute(delete(ChatMessage).filter_by(chat_id=id))
-                await session.execute(delete(Chat).filter_by(id=id))
-                await session.commit()
+        from open_webui.models.shared_chats import SharedChat
 
-                return True and await self.delete_shared_chat_by_chat_id(id, db=session)
-        except Exception:
-            return False
+        async with get_async_db_context(db) as session:
+            try:
+                chat_id = await session.scalar(
+                    select(Chat.id).filter_by(id=id).with_for_update()
+                )
+                if chat_id is None:
+                    await session.rollback()
+                    return False
 
-    async def delete_chat_by_id_and_user_id(self, id: str, user_id: str, db: AsyncSession | None = None) -> bool:
-        try:
-            async with get_async_db_context(db) as session:
-                await session.execute(update(AutomationRun).filter_by(chat_id=id).values(chat_id=None))
-                await session.execute(delete(ChatMessage).filter_by(chat_id=id))
-                await session.execute(delete(Chat).filter_by(id=id, user_id=user_id))
-                await session.commit()
-
-                return True and await self.delete_shared_chat_by_chat_id(id, db=session)
-        except Exception:
-            return False
-
-    async def delete_chats_by_user_id(self, user_id: str, db: AsyncSession | None = None) -> bool:
-        try:
-            async with get_async_db_context(db) as session:
-                await self.delete_shared_chats_by_user_id(user_id, db=session)
-
-                chat_id_subquery = select(Chat.id).filter_by(user_id=user_id).scalar_subquery()
                 await session.execute(
                     update(AutomationRun)
-                    .filter(AutomationRun.chat_id.in_(select(Chat.id).filter_by(user_id=user_id)))
+                    .where(AutomationRun.chat_id == id)
                     .values(chat_id=None)
                 )
-                await session.execute(
-                    delete(ChatMessage).filter(ChatMessage.chat_id.in_(select(Chat.id).filter_by(user_id=user_id)))
-                )
-                await session.execute(delete(Chat).filter_by(user_id=user_id))
-                await session.commit()
+                await session.execute(delete(ChatMessage).where(ChatMessage.chat_id == id))
+                await session.execute(delete(SharedChat).where(SharedChat.chat_id == id))
 
+                result = await session.execute(delete(Chat).filter_by(id=id))
+                if result.rowcount != 1:
+                    await session.rollback()
+                    return False
+
+                await session.commit()
                 return True
-        except Exception:
-            return False
+            except Exception:
+                await session.rollback()
+                return False
+
+    async def delete_chat_by_id_and_user_id(self, id: str, user_id: str, db: AsyncSession | None = None) -> bool:
+        from open_webui.models.shared_chats import SharedChat
+
+        async with get_async_db_context(db) as session:
+            try:
+                # Serialize deletion with AutomationRunTable.insert().  The latter
+                # takes a shared lock before recording a chat-backed run, while
+                # this exclusive lock prevents a run from being attached after
+                # the cleanup statements have already passed it.
+                owned_chat = await session.scalar(
+                    select(Chat.id).filter_by(id=id, user_id=user_id).with_for_update()
+                )
+                if owned_chat is None:
+                    await session.rollback()
+                    return False
+
+                await session.execute(
+                    update(AutomationRun)
+                    .where(AutomationRun.chat_id == id)
+                    .values(chat_id=None)
+                )
+                await session.execute(delete(ChatMessage).where(ChatMessage.chat_id == id))
+                await session.execute(delete(SharedChat).where(SharedChat.chat_id == id))
+
+                result = await session.execute(delete(Chat).filter_by(id=id, user_id=user_id))
+                if result.rowcount != 1:
+                    await session.rollback()
+                    return False
+
+                await session.commit()
+                return True
+            except Exception:
+                await session.rollback()
+                return False
+
+    async def delete_chats_by_user_id(self, user_id: str, db: AsyncSession | None = None) -> bool:
+        from open_webui.models.shared_chats import SharedChat
+
+        async with get_async_db_context(db) as session:
+            try:
+                result = await session.execute(
+                    select(Chat.id)
+                    .filter_by(user_id=user_id)
+                    .order_by(Chat.id)
+                    .with_for_update()
+                )
+                chat_ids = list(result.scalars().all())
+
+                # Delete only snapshots belonging to the locked Chat snapshot.
+                # A broad user_id predicate can otherwise remove the share for
+                # a Chat created concurrently after chat_ids was materialized.
+                if chat_ids:
+                    await session.execute(
+                        delete(SharedChat).where(SharedChat.chat_id.in_(chat_ids))
+                    )
+
+                # Preserve cleanup of genuinely orphaned legacy snapshots, but
+                # never touch a share whose parent Chat still exists.
+                parent_chat_exists = exists(
+                    select(Chat.id).where(Chat.id == SharedChat.chat_id)
+                )
+                await session.execute(
+                    delete(SharedChat).where(
+                        SharedChat.user_id == user_id,
+                        ~parent_chat_exists,
+                    )
+                )
+                if not chat_ids:
+                    await session.commit()
+                    return True
+
+                await session.execute(
+                    update(AutomationRun)
+                    .where(AutomationRun.chat_id.in_(chat_ids))
+                    .values(chat_id=None)
+                )
+                await session.execute(delete(ChatMessage).where(ChatMessage.chat_id.in_(chat_ids)))
+                result = await session.execute(
+                    delete(Chat).where(Chat.user_id == user_id, Chat.id.in_(chat_ids))
+                )
+                if result.rowcount != len(chat_ids):
+                    await session.rollback()
+                    return False
+
+                await session.commit()
+                return True
+            except Exception:
+                await session.rollback()
+                return False
 
     async def delete_chats_by_user_id_and_folder_id(
         self, user_id: str, folder_id: str, db: AsyncSession | None = None
     ) -> bool:
-        try:
-            async with get_async_db_context(db) as session:
-                chat_ids_stmt = select(Chat.id).filter_by(user_id=user_id, folder_id=folder_id)
-                await session.execute(
-                    update(AutomationRun).filter(AutomationRun.chat_id.in_(chat_ids_stmt)).values(chat_id=None)
-                )
-                await session.execute(delete(ChatMessage).filter(ChatMessage.chat_id.in_(chat_ids_stmt)))
-                await session.execute(delete(Chat).filter_by(user_id=user_id, folder_id=folder_id))
-                await session.commit()
+        from open_webui.models.shared_chats import SharedChat
 
+        async with get_async_db_context(db) as session:
+            try:
+                result = await session.execute(
+                    select(Chat.id)
+                    .filter_by(user_id=user_id, folder_id=folder_id)
+                    .order_by(Chat.id)
+                    .with_for_update()
+                )
+                chat_ids = list(result.scalars().all())
+                if not chat_ids:
+                    await session.commit()
+                    return True
+
+                await session.execute(
+                    update(AutomationRun)
+                    .where(AutomationRun.chat_id.in_(chat_ids))
+                    .values(chat_id=None)
+                )
+                await session.execute(delete(ChatMessage).where(ChatMessage.chat_id.in_(chat_ids)))
+                await session.execute(delete(SharedChat).where(SharedChat.chat_id.in_(chat_ids)))
+                result = await session.execute(
+                    delete(Chat).where(
+                        Chat.user_id == user_id,
+                        Chat.folder_id == folder_id,
+                        Chat.id.in_(chat_ids),
+                    )
+                )
+                if result.rowcount != len(chat_ids):
+                    await session.rollback()
+                    return False
+
+                await session.commit()
                 return True
-        except Exception:
-            return False
+            except Exception:
+                await session.rollback()
+                return False
 
     async def move_chats_by_user_id_and_folder_id(
         self,

@@ -26,8 +26,9 @@ def transfer(token, request_key, name, payload):
                            token, request_key, name, payload)
     except OutcomeUnconfirmed:
         raise HTTPException(503, 'share_unconfirmed') from None
-    except HandoffError:
-        raise HTTPException(409, 'share_rejected') from None
+    except HandoffError as error:
+        # Stable code only (share_rejected / share_link_required / share_quota); never the upstream text.
+        raise HTTPException(409, error.reason) from None
     finally:
         workers.release()
 

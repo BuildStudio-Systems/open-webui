@@ -3402,6 +3402,8 @@
   "Save PDF to Share": "PDFをShareに保存",
   "This copies the current conversation, including tool results, to your own private Share space. Review sensitive content before confirming. No public link is created.": "現在の会話（ツールの結果を含む）を自分のShare非公開領域にコピーします。確認前に機密情報を確認してください。公開リンクは作成されません。",
   "Retrying sends the same PDF. Closing this window keeps the pending copy until you leave this conversation or sign out.": "再試行では同じPDFを送信します。このウィンドウを閉じても、会話を離れるかログアウトするまで送信待ちのコピーを保持します。",
+  "Sign in to Share once with this account so it can receive files, then retry the same PDF.": "このアカウントで一度 Share にログインして受け取り先を作成し、同じPDFを再試行してください。",
+  "Share declined the file: it exceeds the size limit or your remaining quota.": "Share がファイルを受け付けませんでした。サイズ上限または残り容量を超えています。",
   "The copy is not confirmed. Check your Systems and Share access, then retry the same PDF.": "保存を確認できません。SystemsとShareのアクセス権を確認して、同じPDFを再試行してください。",
   "Private PDF saved.": "非公開PDFを保存しました。",
   "Open Share": "Shareを開く",

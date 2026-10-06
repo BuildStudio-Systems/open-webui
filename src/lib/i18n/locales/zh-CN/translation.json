@@ -3426,6 +3426,8 @@
   "Save PDF to Share": "将 PDF 保存到 Share",
   "This copies the current conversation, including tool results, to your own private Share space. Review sensitive content before confirming. No public link is created.": "这会将当前对话（包括工具结果）复制到你本人的 Share 私有空间。确认前请检查敏感内容。不会创建公开链接。",
   "Retrying sends the same PDF. Closing this window keeps the pending copy until you leave this conversation or sign out.": "重试会发送同一份 PDF。关闭窗口后仍保留待发送副本，直到离开本对话或退出账号。",
+  "Sign in to Share once with this account so it can receive files, then retry the same PDF.": "请先用本账号登录一次 Share 以建立接收账户，然后重试同一份 PDF。",
+  "Share declined the file: it exceeds the size limit or your remaining quota.": "Share 拒收了该文件：超过大小上限或你的剩余配额。",
   "The copy is not confirmed. Check your Systems and Share access, then retry the same PDF.": "副本保存尚未确认。请检查 Systems 和 Share 访问权限，然后重试同一份 PDF。",
   "Private PDF saved.": "私有 PDF 已保存。",
   "Open Share": "打开 Share",

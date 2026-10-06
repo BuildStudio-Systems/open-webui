@@ -8,7 +8,11 @@
   export let createPdf: () => Promise<Blob | undefined>;
   export let token: string;
   let transfer = new PrivateShareTransfer();
-  let busy = false, failed = false;
+  let busy = false, failed = false, refusal = '';
+  const GUIDANCE: Record<string, string> = {
+    share_link_required: 'Sign in to Share once with this account so it can receive files, then retry the same PDF.',
+    share_quota: 'Share declined the file: it exceeds the size limit or your remaining quota.',
+  };
   const statusAbort = new AbortController();
   onMount(() => {
     const timer = setTimeout(() => statusAbort.abort(), 8000);
@@ -22,9 +26,9 @@
   onDestroy(() => { enabled = false; statusAbort.abort(); transfer.dispose(); });
   async function send() {
     if (!enabled || busy || transfer.saved) return;
-    busy = true; failed = false;
+    busy = true; failed = false; refusal = '';
     try { await transfer.send(token, createPdf); }
-    catch { failed = true; }
+    catch (error) { failed = true; refusal = error instanceof Error && error.message in GUIDANCE ? error.message : ''; }
     finally { busy = false; transfer = transfer; }
   }
 </script>
@@ -35,7 +39,7 @@
     <p class="text-sm">{$i18n.t('This copies the current conversation, including tool results, to your own private Share space. Review sensitive content before confirming. No public link is created.')}</p>
     <p class="text-xs text-gray-500">{$i18n.t('Retrying sends the same PDF. Closing this window keeps the pending copy until you leave this conversation or sign out.')}</p>
     {#if transfer.name}<p class="break-all text-xs">{transfer.name}</p>{/if}
-    {#if failed}<p role="alert" class="text-sm text-red-600">{$i18n.t('The copy is not confirmed. Check your Systems and Share access, then retry the same PDF.')}</p>{/if}
+    {#if failed}<p role="alert" class="text-sm text-red-600">{$i18n.t(GUIDANCE[refusal] ?? 'The copy is not confirmed. Check your Systems and Share access, then retry the same PDF.')}</p>{/if}
     {#if transfer.saved}
       <p role="status">{$i18n.t('Private PDF saved.')}</p>
       <a class="underline" href={transfer.shareHref} target="_blank" rel="noopener noreferrer">{$i18n.t('Open saved file')}</a>

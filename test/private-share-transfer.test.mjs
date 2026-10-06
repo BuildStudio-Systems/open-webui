@@ -38,3 +38,11 @@ test('noncanonical file receipt cannot create a private-file continuation',async
 test('native token rejected before exporting',async()=>{
  const state=new PrivateShareTransfer();let count=0;await assert.rejects(state.send('local',async()=>{count++;return pdf();}));assert.equal(count,0);
 });
+test('an unlinked Share account or a quota refusal surfaces its stable code; other refusals stay unconfirmed (Claude 2026-10-06)',async()=>{
+ for(const [detail,expected] of [['share_link_required','share_link_required'],['share_quota','share_quota'],['share_rejected','copy_unconfirmed'],['<html>','copy_unconfirmed']]){
+  const state=new PrivateShareTransfer();
+  const request=async()=>detail==='<html>'?new Response('<html>proxy</html>',{status:502}):Response.json({detail},{status:409});
+  await assert.rejects(state.send('bs1_fixture',async()=>pdf(),request),e=>e.message===expected);
+  assert.equal(state.saved,false);assert.equal(state.prepared,true);
+ }
+});

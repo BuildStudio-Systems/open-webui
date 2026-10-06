@@ -1,4 +1,14 @@
 // One explicit private copy, with stable bytes and request identity across retries.
+// Stable refusal codes the server answers with (never upstream text); anything else stays 'copy_unconfirmed'.
+export const ACTIONABLE_REFUSALS = ['share_link_required', 'share_quota'] as const;
+export type Refusal = typeof ACTIONABLE_REFUSALS[number];
+async function refusal(response: Response): Promise<string> {
+  try {
+    const body: unknown = await response.clone().json();
+    const detail = typeof body === 'object' && body !== null ? (body as {detail?: unknown}).detail : undefined;
+    return typeof detail === 'string' && (ACTIONABLE_REFUSALS as readonly string[]).includes(detail) ? detail : 'copy_unconfirmed';
+  } catch { return 'copy_unconfirmed'; }
+}
 export class PrivateShareTransfer {
   private pending: {pdf: Blob; name: string; key: string} | null = null;
   private controller: AbortController | null = null;
@@ -32,7 +42,7 @@ export class PrivateShareTransfer {
         headers: {'Authorization': `Bearer ${token}`, 'Content-Type': 'application/pdf', 'Idempotency-Key': p.key, 'X-File-Name': encodeURIComponent(p.name)},
         body: p.pdf
       });
-      if (!response.ok) throw new Error('copy_unconfirmed');
+      if (!response.ok) throw new Error(await refusal(response));
       const receipt = await response.json();
       const fileId = typeof receipt.file_id === 'string' ? receipt.file_id : '';
       if (receipt.name !== p.name || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(fileId) || receipt.url !== 'https://buildstudio-share.com') throw new Error('invalid_receipt');

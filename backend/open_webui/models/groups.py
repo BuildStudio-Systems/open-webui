@@ -452,30 +452,42 @@ class GroupTable:
                 return False
 
     async def remove_user_from_all_groups(self, user_id: str, db: Optional[AsyncSession] = None) -> bool:
-        async with get_async_db_context(db) as db:
+        async with get_async_db_context(db) as session:
             try:
-                # Find all groups the user belongs to
-                result = await db.execute(
-                    select(Group)
-                    .join(GroupMember, GroupMember.group_id == Group.id)
-                    .filter(GroupMember.user_id == user_id)
-                )
-                groups = result.scalars().all()
-
-                # Remove the user from each group
-                for group in groups:
-                    await db.execute(
-                        delete(GroupMember).filter(GroupMember.group_id == group.id, GroupMember.user_id == user_id)
-                    )
-
-                    await db.execute(update(Group).filter_by(id=group.id).values(updated_at=int(time.time())))
-
-                await db.commit()
+                await self._remove_user_from_all_groups_in_session(user_id, session)
+                await session.commit()
                 return True
-
             except Exception:
-                await db.rollback()
+                await session.rollback()
                 return False
+
+    async def _remove_user_from_all_groups_in_session(
+        self, user_id: str, session: AsyncSession
+    ) -> None:
+        """Remove memberships without committing the caller's transaction."""
+        result = await session.execute(
+            select(Group)
+            .join(GroupMember, GroupMember.group_id == Group.id)
+            .filter(GroupMember.user_id == user_id)
+            .order_by(Group.id)
+            .with_for_update()
+        )
+        groups = result.scalars().all()
+        if not groups:
+            return
+
+        group_ids = [group.id for group in groups]
+        await session.execute(
+            delete(GroupMember).where(
+                GroupMember.user_id == user_id,
+                GroupMember.group_id.in_(group_ids),
+            )
+        )
+        await session.execute(
+            update(Group)
+            .where(Group.id.in_(group_ids))
+            .values(updated_at=int(time.time()))
+        )
 
     async def create_groups_by_group_names(
         self, user_id: str, group_names: list[str], db: Optional[AsyncSession] = None

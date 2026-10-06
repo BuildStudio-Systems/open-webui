@@ -549,6 +549,18 @@ class ChatTable:
         timer_at: int | None = None,
     ) -> ChatModel | None:
         async with get_async_db_context(db) as session:
+            from open_webui.models.users import User
+
+            # Account deletion takes FOR UPDATE on User before collecting Chat
+            # rows. Hold the shared owner lock until this Chat is committed so
+            # creation either precedes that snapshot or sees the owner gone.
+            await session.flush()
+            owner_id = await session.scalar(
+                select(User.id).where(User.id == user_id).with_for_update(read=True)
+            )
+            if owner_id is None:
+                return None
+
             chat = ChatModel(
                 **{
                     'id': id,
@@ -665,6 +677,17 @@ class ChatTable:
         db: AsyncSession | None = None,
     ) -> list[ChatModel]:
         async with get_async_db_context(db) as session:
+            from open_webui.models.users import User
+
+            # Imports are the other Chat creation path and must obey the same
+            # owner lock ordering as insert_new_chat.
+            await session.flush()
+            owner_id = await session.scalar(
+                select(User.id).where(User.id == user_id).with_for_update(read=True)
+            )
+            if owner_id is None:
+                return []
+
             # Validate folder_id references — clear any that don't exist
             folder_ids = {f.folder_id for f in chat_import_forms if f.folder_id}
             existing = set()
@@ -2551,59 +2574,54 @@ class ChatTable:
                 return False
 
     async def delete_chats_by_user_id(self, user_id: str, db: AsyncSession | None = None) -> bool:
-        from open_webui.models.shared_chats import SharedChat
-
         async with get_async_db_context(db) as session:
             try:
-                result = await session.execute(
-                    select(Chat.id)
-                    .filter_by(user_id=user_id)
-                    .order_by(Chat.id)
-                    .with_for_update()
-                )
-                chat_ids = list(result.scalars().all())
-
-                # Delete only snapshots belonging to the locked Chat snapshot.
-                # A broad user_id predicate can otherwise remove the share for
-                # a Chat created concurrently after chat_ids was materialized.
-                if chat_ids:
-                    await session.execute(
-                        delete(SharedChat).where(SharedChat.chat_id.in_(chat_ids))
-                    )
-
-                # Preserve cleanup of genuinely orphaned legacy snapshots, but
-                # never touch a share whose parent Chat still exists.
-                parent_chat_exists = exists(
-                    select(Chat.id).where(Chat.id == SharedChat.chat_id)
-                )
-                await session.execute(
-                    delete(SharedChat).where(
-                        SharedChat.user_id == user_id,
-                        ~parent_chat_exists,
-                    )
-                )
-                if not chat_ids:
-                    await session.commit()
-                    return True
-
-                await session.execute(
-                    update(AutomationRun)
-                    .where(AutomationRun.chat_id.in_(chat_ids))
-                    .values(chat_id=None)
-                )
-                await session.execute(delete(ChatMessage).where(ChatMessage.chat_id.in_(chat_ids)))
-                result = await session.execute(
-                    delete(Chat).where(Chat.user_id == user_id, Chat.id.in_(chat_ids))
-                )
-                if result.rowcount != len(chat_ids):
-                    await session.rollback()
-                    return False
-
+                await self._delete_chats_by_user_id_in_session(user_id, session)
                 await session.commit()
                 return True
             except Exception:
                 await session.rollback()
                 return False
+
+    async def _delete_chats_by_user_id_in_session(
+        self, user_id: str, session: AsyncSession
+    ) -> None:
+        """Clean a locked Chat snapshot without committing the caller's transaction.
+
+        Account deletion calls this directly while holding its User row lock;
+        routing through get_async_db_context would open another session when
+        session sharing is disabled and would release that lock too early.
+        """
+        from open_webui.models.shared_chats import SharedChat
+
+        result = await session.execute(
+            select(Chat.id)
+            .filter_by(user_id=user_id)
+            .order_by(Chat.id)
+            .with_for_update()
+        )
+        chat_ids = list(result.scalars().all())
+
+        # Only touch snapshots belonging to the locked Chat snapshot.
+        if chat_ids:
+            await session.execute(delete(SharedChat).where(SharedChat.chat_id.in_(chat_ids)))
+
+        parent_chat_exists = exists(select(Chat.id).where(Chat.id == SharedChat.chat_id))
+        await session.execute(
+            delete(SharedChat).where(SharedChat.user_id == user_id, ~parent_chat_exists)
+        )
+        if not chat_ids:
+            return
+
+        await session.execute(
+            update(AutomationRun).where(AutomationRun.chat_id.in_(chat_ids)).values(chat_id=None)
+        )
+        await session.execute(delete(ChatMessage).where(ChatMessage.chat_id.in_(chat_ids)))
+        result = await session.execute(
+            delete(Chat).where(Chat.user_id == user_id, Chat.id.in_(chat_ids))
+        )
+        if result.rowcount != len(chat_ids):
+            raise RuntimeError('Chat deletion did not remove its complete locked snapshot')
 
     async def delete_chats_by_user_id_and_folder_id(
         self, user_id: str, folder_id: str, db: AsyncSession | None = None

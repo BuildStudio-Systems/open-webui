@@ -703,7 +703,11 @@ async def delete_folder_by_id(
 
                 for folder_id in folder_ids:
                     if delete_contents:
-                        await Chats.delete_chats_by_user_id_and_folder_id(folder_owner_id, folder_id, db=db)
+                        deleted = await Chats.delete_chats_by_user_id_and_folder_id(
+                            folder_owner_id, folder_id, db=db
+                        )
+                        if not deleted:
+                            raise RuntimeError('Failed to delete folder chats')
                     else:
                         await Chats.move_chats_by_user_id_and_folder_id(folder_owner_id, folder_id, None, db=db)
 

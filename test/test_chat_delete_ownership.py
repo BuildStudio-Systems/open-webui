@@ -1,6 +1,8 @@
 """Model-level ownership regression coverage for single-chat deletion."""
 
 import asyncio
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -13,9 +15,10 @@ def register_chat_delete_tables(modules):
     from open_webui.models.automations import AutomationRun
     from open_webui.models.chat_messages import ChatMessage
     from open_webui.models.chats import Chat
+    from open_webui.models.groups import Group, GroupMember
     from open_webui.models.shared_chats import SharedChat
 
-    return Chat, ChatMessage, AutomationRun, SharedChat
+    return Chat, ChatMessage, AutomationRun, SharedChat, Group, GroupMember
 
 
 def test_delete_chat_by_id_and_user_id_gates_every_side_effect(modules, monkeypatch, tmp_path):
@@ -94,6 +97,158 @@ def test_delete_chat_by_id_and_user_id_gates_every_side_effect(modules, monkeypa
                 assert await session.get(SharedChat, share_id) is None
 
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize('session_sharing', [False, True])
+def test_account_delete_keeps_cleanup_and_owner_delete_in_one_transaction(
+    modules, monkeypatch, tmp_path, session_sharing
+):
+    async def scenario():
+        from open_webui.internal import db as db_module
+        from open_webui.models.automations import AutomationRun
+        from open_webui.models.chats import Chat, Chats, ChatForm, ChatImportForm
+        from open_webui.models.groups import Group, GroupMember
+        from open_webui.models.users import User, Users
+
+        async with harness(modules, monkeypatch, tmp_path) as context:
+            monkeypatch.setattr(db_module, 'DATABASE_ENABLE_SESSION_SHARING', session_sharing)
+            async with context.sessions() as session:
+                session.add(User(id='alice', email='alice@test.invalid', name='Alice', role='user'))
+                session.add(Group(id='group-one', user_id='owner', name='Group', description='',
+                                  created_at=1, updated_at=1))
+                session.add(GroupMember(id='member-one', group_id='group-one', user_id='alice'))
+                session.add(Chat(id='account-chat', user_id='alice', title='Fixture', chat={}, meta={}))
+                session.add(AutomationRun(id='account-run', automation_id='fixture',
+                                          chat_id='account-chat', status='success', created_at=1))
+                await session.commit()
+
+            cleanup = Chats._delete_chats_by_user_id_in_session
+            commits = []
+
+            async def inspect_cleanup(user_id, session):
+                await cleanup(user_id, session)
+                assert session.in_transaction()
+                assert await session.get(User, user_id) is not None
+                commit = session.commit
+
+                async def counted_commit():
+                    commits.append(True)
+                    await commit()
+
+                monkeypatch.setattr(session, 'commit', counted_commit)
+
+            monkeypatch.setattr(Chats, '_delete_chats_by_user_id_in_session', inspect_cleanup)
+            assert await Users.delete_user_by_id('alice') is True
+            assert len(commits) == 1
+            async with context.sessions() as session:
+                assert await session.get(User, 'alice') is None
+                assert await session.get(Chat, 'account-chat') is None
+                assert (await session.get(AutomationRun, 'account-run')).chat_id is None
+                assert await session.get(GroupMember, 'member-one') is None
+
+            assert await Chats.insert_new_chat('late-chat', 'alice', ChatForm(chat={})) is None
+            assert await Chats.import_chats('alice', [ChatImportForm(chat={})]) == []
+            async with context.sessions() as session:
+                assert await session.get(Chat, 'late-chat') is None
+
+    asyncio.run(scenario())
+
+
+def test_account_delete_rolls_back_chat_cleanup_when_user_delete_fails(
+    modules, monkeypatch, tmp_path
+):
+    async def scenario():
+        from sqlalchemy.sql.dml import Delete
+        from open_webui.models.automations import AutomationRun
+        from open_webui.models.chats import Chat, Chats
+        from open_webui.models.groups import Group, GroupMember
+        from open_webui.models.users import User, Users
+
+        async with harness(modules, monkeypatch, tmp_path) as context:
+            async with context.sessions() as session:
+                session.add(User(id='alice', email='alice@test.invalid', name='Alice', role='user'))
+                session.add(Group(id='group-one', user_id='owner', name='Group', description='',
+                                  created_at=1, updated_at=1))
+                session.add(GroupMember(id='member-one', group_id='group-one', user_id='alice'))
+                session.add(Chat(id='retained-chat', user_id='alice', title='Fixture', chat={}, meta={}))
+                session.add(AutomationRun(id='retained-run', automation_id='fixture',
+                                          chat_id='retained-chat', status='success', created_at=1))
+                await session.commit()
+
+            cleanup = Chats._delete_chats_by_user_id_in_session
+
+            async def fail_owner_delete(user_id, session):
+                await cleanup(user_id, session)
+                execute = session.execute
+
+                async def failing_execute(statement, *args, **kwargs):
+                    if isinstance(statement, Delete) and statement.table.name == 'user':
+                        raise RuntimeError('Synthetic account delete failure')
+                    return await execute(statement, *args, **kwargs)
+
+                monkeypatch.setattr(session, 'execute', failing_execute)
+
+            monkeypatch.setattr(Chats, '_delete_chats_by_user_id_in_session', fail_owner_delete)
+            assert await Users.delete_user_by_id('alice') is False
+            async with context.sessions() as session:
+                assert await session.get(User, 'alice') is not None
+                assert await session.get(Chat, 'retained-chat') is not None
+                assert (await session.get(AutomationRun, 'retained-run')).chat_id == 'retained-chat'
+                assert await session.get(GroupMember, 'member-one') is not None
+
+    asyncio.run(scenario())
+
+
+def test_chat_creation_and_import_accept_a_live_owner(modules, monkeypatch, tmp_path):
+    async def scenario():
+        from open_webui.models.chats import Chats, ChatForm, ChatImportForm
+        from open_webui.models.users import User
+
+        async with harness(modules, monkeypatch, tmp_path) as context:
+            async with context.sessions() as session:
+                session.add(User(id='alice', email='alice@test.invalid', name='Alice', role='user'))
+                await session.commit()
+            assert (await Chats.insert_new_chat('live-chat', 'alice', ChatForm(chat={}))).id == 'live-chat'
+            imported = await Chats.import_chats('alice', [ChatImportForm(chat={})])
+            assert len(imported) == 1 and imported[0].user_id == 'alice'
+
+    asyncio.run(scenario())
+
+
+def test_folder_delete_reports_failure_when_chat_cleanup_fails(modules, monkeypatch):
+    # Importing the full router registers optional channel tables in the shared
+    # SQLAlchemy metadata. Remove only those additions afterwards so later
+    # isolated harnesses do not inherit unrelated foreign-key dependencies.
+    metadata = modules.db.Base.metadata
+    tables_before = set(metadata.tables)
+
+    async def scenario():
+        from fastapi import HTTPException
+        from open_webui.routers import folders as api
+
+        folder = SimpleNamespace(id='folder-one', user_id='alice')
+        monkeypatch.setattr(api, 'check_folders_permission', AsyncMock())
+        monkeypatch.setattr(api.Folders, 'get_folder_by_id_and_user_id', AsyncMock(return_value=folder))
+        monkeypatch.setattr(api.Folders, 'get_folder_ids_by_id_and_user_id_in_subtree',
+                            AsyncMock(return_value=['folder-one']))
+        monkeypatch.setattr(api.Folders, 'delete_folder_by_id_and_user_id',
+                            AsyncMock(return_value=['folder-one']))
+        monkeypatch.setattr(api.Folders, 'get_folders_by_parent_id_and_user_id', AsyncMock(return_value=[]))
+        monkeypatch.setattr(api.Chats, 'count_chats_by_folder_ids_and_user_id', AsyncMock(return_value=0))
+        monkeypatch.setattr(api.Chats, 'delete_chats_by_user_id_and_folder_id', AsyncMock(return_value=False))
+        event = AsyncMock()
+        monkeypatch.setattr(api, 'publish_event', event)
+        with pytest.raises(HTTPException) as error:
+            await api.delete_folder_by_id(SimpleNamespace(), 'folder-one', True,
+                                          SimpleNamespace(id='alice', role='user'), None)
+        assert error.value.status_code == 400
+        event.assert_not_awaited()
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        for name in set(metadata.tables) - tables_before:
+            metadata.remove(metadata.tables[name])
 
 
 def test_delete_chat_rolls_back_shared_session_after_mid_transaction_error(

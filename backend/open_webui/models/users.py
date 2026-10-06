@@ -738,17 +738,29 @@ class UsersTable:
         from open_webui.models.chats import Chats
         from open_webui.models.groups import Groups
 
-        # Remove User from Groups
-        await Groups.remove_user_from_all_groups(id)
-
-        # Delete User Chats
         async with get_async_db_context(db) as session:
-            deleted_chats = await Chats.delete_chats_by_user_id(id, db=session)
-            if not deleted_chats:
-                return False  # chats deletion failed
-            await session.execute(delete(User).where(User.id == id))
-            await session.commit()
-            return True
+            try:
+                owner_id = await session.scalar(
+                    select(User.id).where(User.id == id).with_for_update()
+                )
+                if owner_id is None:
+                    await session.rollback()
+                    return False
+
+                # Keep the User lock, group membership cleanup, Chat snapshot
+                # and owner deletion in one transaction even when general
+                # session sharing is disabled.
+                await Groups._remove_user_from_all_groups_in_session(id, session)
+                await Chats._delete_chats_by_user_id_in_session(id, session)
+                result = await session.execute(delete(User).where(User.id == id))
+                if result.rowcount != 1:
+                    await session.rollback()
+                    return False
+                await session.commit()
+                return True
+            except Exception:
+                await session.rollback()
+                return False
 
     async def get_user_api_key_by_id(self, id: str, db: AsyncSession | None = None) -> str | None:
         async with get_async_db_context(db) as session:

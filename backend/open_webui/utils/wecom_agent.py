@@ -18,6 +18,7 @@ from fastapi import HTTPException
 _admission = asyncio.Lock()
 AGENT_TOTAL_TIMEOUT = 240  # Heartbeats must not keep the single channel busy forever.
 RESET = {'新对话', '开始新对话', '/new', '/reset'}
+MONITOR_OUTCOMES = frozenset({'already_healthy', 'recovered', 'manual_required', 'unconfirmed'})
 CHAT_PROMPT = ('You are There, talking directly with your owner in a private WeCom chat. '
     'Reply naturally in the language used by the owner. Use the supplied recent conversation '
     'for follow-up questions. Do not call tools for greetings or questions answerable directly. '
@@ -82,6 +83,7 @@ async def recent_context(chats, config, previous):
 async def read_agent_stream(response):
     response.raise_for_status()
     text=[];size=0;tool_used=False;finished=False;event='message';data=[]
+    monitor_outcome=None
     async for line in response.aiter_lines():
         if len(line)>500000:raise ValueError('oversized_event')
         if line.startswith('event:'):event=line[6:].strip()
@@ -89,6 +91,16 @@ async def read_agent_stream(response):
         elif not line:
             raw='\n'.join(data);data=[]
             if event=='hermes.tool.progress':tool_used=True
+            elif event=='buildstudio.monitor.outcome':
+                value=json.loads(raw)
+                if (not isinstance(value,dict)
+                        or set(value)!={'schema','outcome'}
+                        or value.get('schema')!='buildstudio.monitor-outcome.v1'
+                        or value.get('outcome') not in MONITOR_OUTCOMES):
+                    raise ValueError('invalid_monitor_outcome')
+                # Conflicting terminal receipts are never resolved by order.
+                monitor_outcome=(value['outcome'] if monitor_outcome in (None,value['outcome'])
+                                 else 'unconfirmed')
             elif raw and raw!='[DONE]':
                 value=json.loads(raw)
                 if value.get('error'):raise ValueError('agent_error')
@@ -106,7 +118,15 @@ async def read_agent_stream(response):
                         finished=True
             event='message'
     if not finished or not ''.join(text).strip():raise ValueError('incomplete_stream')
-    return ''.join(text),tool_used
+    return ''.join(text),tool_used,monitor_outcome
+
+
+def monitor_state(outcome, tool_used=False):
+    if outcome in {'already_healthy','recovered'}:
+        return 'completed'
+    if outcome=='manual_required' or (outcome is None and tool_used):
+        return 'manual_required'
+    return 'unconfirmed'
 
 
 def authenticate(request, config):
@@ -181,8 +201,15 @@ async def execute(config,event_id,text,previous=None,monitor_node=None):
         # A crash after execution started is never retried implicitly. The saved
         # conversation and Broker jobs provide the authenticated recovery record.
         messages=existing.chat.get('history',{}).get('messages',{}).values()
-        reply=next((m.get('wecom_reply') for m in messages if m.get('role')=='assistant' and m.get('done')),None)
-        return {'chat_id':chat_id,'state':'completed' if reply else 'recorded','duplicate':True,'reply':reply or '这条请求已经登记，结果尚未确认，请不要重复执行。'}
+        answer=next((m for m in messages if m.get('role')=='assistant' and m.get('done')),None)
+        reply=answer.get('wecom_reply') if isinstance(answer,dict) else None
+        outcome=answer.get('monitor_outcome') if isinstance(answer,dict) else None
+        state=(monitor_state(outcome) if monitor_node else ('completed' if reply else 'recorded'))
+        result={'chat_id':chat_id,'state':state,'duplicate':True,
+                'reply':reply or '这条请求已经登记，结果尚未确认，请不要重复执行。'}
+        if monitor_node:
+            result['outcome']=outcome if outcome in MONITOR_OUTCOMES else 'unconfirmed'
+        return result
     history=await recent_context(Chats,config,previous)
     user_message_id = str(uuid.uuid4())
     assistant_id = str(uuid.uuid4())
@@ -200,7 +227,7 @@ async def execute(config,event_id,text,previous=None,monitor_node=None):
         raise HTTPException(503,'Private chat storage unavailable.')
     state = 'completed'
     content = '处理结果尚未确认。请查看设备操作记录；不要直接重复执行。'
-    tool_used=False
+    tool_used=False;monitor_outcome=None
     try:
         if text in RESET:
             content='已开始新对话。你可以直接在这里和我聊天。'
@@ -212,13 +239,25 @@ async def execute(config,event_id,text,previous=None,monitor_node=None):
                          'X-BuildStudio-Device-Capability':grant['capability'],
                          'Idempotency-Key':'wecom-'+event_id},
                 json={'model':'there-agent','stream':True,'messages':[{'role':'system','content':CHAT_PROMPT},*history,{'role':'user','content':text}]}) as response:
-                content,tool_used=await read_agent_stream(response)
+                content,tool_used,monitor_outcome=await read_agent_stream(response)
     except (TimeoutError,httpx.HTTPError,ValueError,KeyError,IndexError,TypeError):
         state = 'unconfirmed'
+        monitor_outcome='unconfirmed' if monitor_node else None
+    if monitor_node:
+        state=monitor_state(monitor_outcome,tool_used)
+        monitor_outcome=(monitor_outcome if monitor_outcome in MONITOR_OUTCOMES
+                         else 'manual_required' if tool_used else 'unconfirmed')
     reply=public_reply(content,tool_used,config,chat_id)
+    finished_message={**pending_message,'content':content,'done':True,'wecom_reply':reply}
+    if monitor_node:
+        finished_message['monitor_outcome']=monitor_outcome
     saved = await Chats.upsert_message_to_chat_by_id_and_message_id(chat_id,assistant_id,
-        {**pending_message,'content':content,'done':True,'wecom_reply':reply})
+        finished_message)
     if saved is None:
         state = 'unconfirmed'
+        monitor_outcome='unconfirmed' if monitor_node else None
         reply='结果保存失败，请先检查 There 会话，不要重复执行设备操作。'
-    return {'chat_id':chat_id,'state':state,'duplicate':False,'reply':reply}
+    result={'chat_id':chat_id,'state':state,'duplicate':False,'reply':reply}
+    if monitor_node:
+        result['outcome']=monitor_outcome
+    return result

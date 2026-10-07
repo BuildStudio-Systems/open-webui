@@ -81,18 +81,23 @@ class WeComAgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('尚未确认',result['reply'])
 
     @staticmethod
-    def stream_response(content,tool=False,finish='stop'):
+    def stream_response(content,tool=False,finish='stop',outcome=None):
         async def lines():
             if tool:
                 for line in ['event: hermes.tool.progress','data: {"status":"running","tool":"there_devices"}','']:yield line
+            if outcome:
+                for line in ['event: buildstudio.monitor.outcome',
+                             'data: '+json.dumps({'schema':'buildstudio.monitor-outcome.v1','outcome':outcome}),
+                             '']:yield line
             for value in [{'choices':[{'delta':{'content':content},'finish_reason':None}]},{'choices':[{'delta':{},'finish_reason':finish}]}]:
                 yield 'data: '+json.dumps(value);yield ''
             yield 'data: [DONE]';yield ''
         return SimpleNamespace(raise_for_status=lambda:None,aiter_lines=lines)
 
     async def test_stream_and_output_privacy(self):
-        content,tools=await module.read_agent_stream(self.stream_response('Hello!'))
+        content,tools,outcome=await module.read_agent_stream(self.stream_response('Hello!'))
         self.assertFalse(tools)
+        self.assertIsNone(outcome)
         self.assertEqual(module.public_reply(content,tools,self.config,'chat'),'Hello!')
         for secret in ['internal 10.0.0.4','[device](http://host.lan)','password=hidden','SSH /root/private','a'*64,
                        'fe80::1','2404:1a8:7f01:a::3','2001:4860:4860:0:0:0:0:8888','C:\\Users\\x','on backendserver','user buildstudio-monitoring']:
@@ -102,6 +107,58 @@ class WeComAgentTests(unittest.IsolatedAsyncioTestCase):
         for plain in ['任务在 02:34:20 完成','比例大约是 1:2:3','官网是 https://buildstudio-systems.com/ 欢迎访问','现在是 14:05']:
             self.assertEqual(module.public_reply(plain,False,self.config,'chat'),plain)
         with self.assertRaises(ValueError):await module.read_agent_stream(self.stream_response('partial',finish='error'))
+
+    async def test_monitor_state_uses_only_structured_outcome(self):
+        for outcome,state in [('already_healthy','completed'),('recovered','completed'),
+                              ('manual_required','manual_required'),('unconfirmed','unconfirmed')]:
+            with self.subTest(outcome=outcome):
+                _,used,parsed=await module.read_agent_stream(
+                    self.stream_response('model prose says success',tool=True,outcome=outcome))
+                self.assertTrue(used);self.assertEqual(parsed,outcome)
+                self.assertEqual(module.monitor_state(parsed,used),state)
+        self.assertEqual(module.monitor_state(None,True),'manual_required')
+        self.assertEqual(module.monitor_state(None,False),'unconfirmed')
+
+    async def test_invalid_or_conflicting_monitor_outcome_fails_closed(self):
+        async def malformed():
+            for line in ['event: buildstudio.monitor.outcome','data: {"outcome":"recovered"}','']:
+                yield line
+        with self.assertRaises(ValueError):
+            await module.read_agent_stream(SimpleNamespace(raise_for_status=lambda:None,aiter_lines=malformed))
+
+        async def conflicting():
+            for outcome in ('recovered','manual_required'):
+                yield 'event: buildstudio.monitor.outcome'
+                yield 'data: '+json.dumps({'schema':'buildstudio.monitor-outcome.v1','outcome':outcome})
+                yield ''
+            for line in ['data: '+json.dumps({'choices':[{'delta':{'content':'x'},'finish_reason':None}]}),'',
+                         'data: '+json.dumps({'choices':[{'delta':{},'finish_reason':'stop'}]}),'']:
+                yield line
+        _,_,outcome=await module.read_agent_stream(
+            SimpleNamespace(raise_for_status=lambda:None,aiter_lines=conflicting))
+        self.assertEqual(outcome,'unconfirmed')
+
+    async def test_monitor_execute_persists_outcome_for_duplicate_without_replay(self):
+        saved=[]
+        chats=SimpleNamespace(get_chat_by_id=AsyncMock(return_value=None),
+            insert_new_chat=AsyncMock(return_value=True),
+            upsert_message_to_chat_by_id_and_message_id=AsyncMock(side_effect=lambda *a:saved.append(a) or True))
+        users=SimpleNamespace(get_user_by_id=AsyncMock(return_value=SimpleNamespace(role='admin')))
+        client=AsyncMock();client.__aenter__.return_value=client
+        client.post.return_value=httpx.Response(200,json={'owner':'owner','capability':'test-proof'},request=httpx.Request('POST','http://test'))
+        response=self.stream_response('recovered',tool=True,outcome='recovered')
+        context=AsyncMock();context.__aenter__.return_value=response;client.stream=MagicMock(return_value=context)
+        models={'open_webui.models.chats':SimpleNamespace(Chats=chats,ChatForm=lambda **kw:kw),
+                'open_webui.models.users':SimpleNamespace(Users=users)}
+        with patch.dict(sys.modules,models),patch.object(module.httpx,'AsyncClient',return_value=client):
+            first=await module.execute(self.config,'e'*64,'Monitor自动核查。there_devices operate monitor-dns-recovery。',monitor_node='monitoring')
+            self.assertEqual((first['state'],first['outcome']),('completed','recovered'))
+            message=saved[0][2]
+            self.assertEqual(message['monitor_outcome'],'recovered')
+            chats.get_chat_by_id.return_value=SimpleNamespace(user_id='owner',meta={'wecom_event':'e'*64},chat={'history':{'messages':{'a':message}}})
+            duplicate=await module.execute(self.config,'e'*64,'changed',monitor_node='monitoring')
+            self.assertEqual((duplicate['state'],duplicate['outcome']),('completed','recovered'))
+            self.assertEqual(client.stream.call_count,1)
 
     async def test_history_uses_only_bound_public_replies_in_order(self):
         def row(event,previous,user,reply):

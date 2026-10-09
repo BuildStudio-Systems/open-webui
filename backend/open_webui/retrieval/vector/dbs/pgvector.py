@@ -74,7 +74,7 @@ class DocumentChunk(Base):
 
     id = Column(Text, primary_key=True)
     vector = Column(VECTOR_TYPE_FACTORY(dim=VECTOR_LENGTH), nullable=True)
-    collection_name = Column(Text, nullable=False)
+    collection_name = Column(Text, primary_key=True, nullable=False)
 
     if PGVECTOR_PGCRYPTO:
         text = Column(LargeBinary, nullable=True)
@@ -285,15 +285,11 @@ class PgvectorClient(VectorDBBase):
             raise Exception("The 'vector' column does not exist in the 'document_chunk' table.")
 
     def adjust_vector_length(self, vector: List[float]) -> List[float]:
-        # Adjust vector to have length VECTOR_LENGTH
-        current_length = len(vector)
-        if current_length < VECTOR_LENGTH:
-            # Pad the vector with zeros
-            vector += [0.0] * (VECTOR_LENGTH - current_length)
-        elif current_length > VECTOR_LENGTH:
-            # Truncate the vector to VECTOR_LENGTH
-            vector = vector[:VECTOR_LENGTH]
-        return vector
+        # Zero padding preserves cosine distance. Truncation silently corrupts
+        # embeddings; a larger model needs an explicit storage migration.
+        if len(vector) > VECTOR_LENGTH:
+            raise ValueError('Embedding dimension exceeds the configured pgvector dimension')
+        return list(vector) + [0.0] * (VECTOR_LENGTH - len(vector))
 
     def insert(self, collection_name: str, items: List[VectorItem]) -> None:
         try:
@@ -314,7 +310,7 @@ class PgvectorClient(VectorDBBase):
                                 pgp_sym_encrypt(:text, :key),
                                 pgp_sym_encrypt(:metadata_text, :key)
                             )
-                            ON CONFLICT (id) DO NOTHING
+                            ON CONFLICT (id, collection_name) DO NOTHING
                         """),
                         {
                             'id': item['id'],
@@ -365,7 +361,7 @@ class PgvectorClient(VectorDBBase):
                                 pgp_sym_encrypt(:text, :key),
                                 pgp_sym_encrypt(:metadata_text, :key)
                             )
-                            ON CONFLICT (id) DO UPDATE SET
+                            ON CONFLICT (id, collection_name) DO UPDATE SET
                               vector = EXCLUDED.vector,
                               collection_name = EXCLUDED.collection_name,
                               text = EXCLUDED.text,
@@ -385,7 +381,9 @@ class PgvectorClient(VectorDBBase):
             else:
                 for item in items:
                     vector = self.adjust_vector_length(item['vector'])
-                    existing = self.session.query(DocumentChunk).filter(DocumentChunk.id == item['id']).first()
+                    existing = self.session.query(DocumentChunk).filter(
+                        DocumentChunk.id == item['id'], DocumentChunk.collection_name == collection_name
+                    ).first()
                     if existing:
                         existing.vector = vector
                         existing.text = item['text']

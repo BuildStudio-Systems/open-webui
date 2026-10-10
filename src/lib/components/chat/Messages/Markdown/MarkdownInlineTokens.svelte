@@ -27,6 +27,7 @@
 	import CodespanToken from './MarkdownInlineTokens/CodespanToken.svelte';
 	import MentionToken from './MarkdownInlineTokens/MentionToken.svelte';
 	import NoteLinkToken from './MarkdownInlineTokens/NoteLinkToken.svelte';
+	import AgentFilePreview from './MarkdownInlineTokens/AgentFilePreview.svelte';
 	import SourceToken from './SourceToken.svelte';
 
 	export let id: string;
@@ -256,6 +257,8 @@
 							: attachmentCopy[download.phase]}
 					</span>
 				{/if}
+				<!-- Inline preview of the delivered file (image / PDF / text); downloads stay above. -->
+				<AgentFilePreview href={token.href} {done} />
 			{/if}
 		{/if}
 	{:else if token.type === 'image'}

@@ -17,6 +17,7 @@ export default {
 			'src/lib/constants/permissions.test.ts',
 			'src/lib/utils/attachment-download.test.ts',
 			'src/lib/utils/attachment-download-ui.test.ts',
+			'src/lib/utils/agent-file-preview.test.ts',
 			'src/lib/utils/language-fonts.test.ts'
 		]
 	}

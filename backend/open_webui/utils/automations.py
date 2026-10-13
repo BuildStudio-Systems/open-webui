@@ -202,6 +202,27 @@ def rrule_interval_seconds(s: str) -> Optional[int]:
 ############################
 
 
+def _propagate_scheduler_cancellation(error: BaseException) -> None:
+    """Restore cancellation if an async cleanup layer converted it to an error.
+
+    SQLAlchemy/driver cleanup may replace ``CancelledError`` with a database
+    exception while closing a session.  The task still has a pending cancel
+    request, so broad scheduler error handlers must not log it and continue.
+    """
+
+    task = asyncio.current_task()
+    if task is not None and task.cancelling():
+        raise asyncio.CancelledError from error
+
+    seen = set()
+    current: BaseException | None = error
+    while current is not None and id(current) not in seen:
+        if isinstance(current, asyncio.CancelledError):
+            raise asyncio.CancelledError from error
+        seen.add(id(current))
+        current = current.__cause__ or current.__context__
+
+
 # Keep the old name as an alias so any stale imports still work.
 async def automation_worker_loop(app) -> None:
     """Deprecated alias — use scheduler_worker_loop."""
@@ -234,7 +255,8 @@ async def scheduler_worker_loop(app) -> None:
 
                 for timer_id, claim_id in await claim_due_timers(int(time.time_ns()), limit=10):
                     asyncio.create_task(execute_due_timer(app, timer_id, claim_id))
-            except Exception:
+            except Exception as error:
+                _propagate_scheduler_cancellation(error)
                 log.exception('Scheduler: timer error')
 
             if now < next_scheduler_poll:
@@ -252,17 +274,20 @@ async def scheduler_worker_loop(app) -> None:
                         log.info('Claimed %s due automation(s)', len(batch))
                     for automation in batch:
                         asyncio.create_task(execute_automation(app, automation))
-                except Exception:
+                except Exception as error:
+                    _propagate_scheduler_cancellation(error)
                     log.exception('Scheduler: automation error')
 
             # ── Calendar Alerts ──
             if await Config.get('calendar.enable'):
                 try:
                     await _check_calendar_alerts(app)
-                except Exception:
+                except Exception as error:
+                    _propagate_scheduler_cancellation(error)
                     log.exception('Scheduler: calendar alert error')
 
-        except Exception:
+        except Exception as error:
+            _propagate_scheduler_cancellation(error)
             log.exception('Scheduler worker error')
 
         await asyncio.sleep(max(1, TIMER_POLL_INTERVAL))

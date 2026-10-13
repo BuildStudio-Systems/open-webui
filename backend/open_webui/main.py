@@ -238,6 +238,7 @@ from open_webui.utils.chat_id import (
 from open_webui.utils.chat_variables import (
     normalize_chat_variables,
 )
+from open_webui.utils.lifecycle import shutdown_lifespan_resources
 from open_webui.utils.embeddings import generate_embeddings
 from open_webui.utils.json_codec import JSONCodec
 from open_webui.utils.json_response import apply_orjson_http_json
@@ -475,14 +476,7 @@ async def lifespan(app: FastAPI):
     # Shutdown: clean up shared resources
     from open_webui.utils.session_pool import close_session
 
-    await close_session()
-
-    if hasattr(app.state, 'redis_task_command_listener'):
-        app.state.redis_task_command_listener.cancel()
-
-    app.state.periodic_usage_pool_cleanup.cancel()
-    app.state.periodic_session_pool_cleanup.cancel()
-    app.state.scheduler_worker_loop.cancel()
+    await shutdown_lifespan_resources(app, close_session)
 
     await publish_event(app, EVENTS.SYSTEM_SHUTDOWN_COMPLETED, source='system')
 
